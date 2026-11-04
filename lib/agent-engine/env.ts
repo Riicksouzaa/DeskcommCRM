@@ -11,7 +11,10 @@ import {
   RETORNO_MIN_AHEAD_MS_PADRAO,
   RETORNO_STAGGER_WINDOW_MS_PADRAO,
 } from '@/lib/followup/janela';
-import { esforcoDeRaciocinioOpenAI } from '@/lib/agent-engine/edge/llm/providers';
+import {
+  esforcoDeRaciocinioOpenAI,
+  esforcoDeRaciocinioOpenRouter,
+} from '@/lib/agent-engine/edge/llm/providers';
 
 const envSchema = z.object({
   // Postgres do Supabase (connection string — Settings → Database). O motor usa
@@ -217,6 +220,25 @@ const envSchema = z.object({
         }
       },
       'use none | minimal | low | medium | high | xhigh (ou deixe vazio)',
+    ),
+  // Esforço de raciocínio das chamadas pela OpenRouter. Muitos modelos de lá
+  // raciocinam por obrigação e no esforço MÁXIMO (z-ai/glm-5.3-flash), e o
+  // raciocínio conta como saída: o turno estourava o teto e saía sem mensagem.
+  // Validado aqui pelo mesmo motivo do knob da OpenAI.
+  OPENROUTER_REASONING_EFFORT: z
+    .string()
+    .optional()
+    .refine(
+      (v) => {
+        if (v === undefined) return true;
+        try {
+          esforcoDeRaciocinioOpenRouter(v);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      'use minimal | low | medium | high | xhigh | max (ou deixe vazio; none não é aceito)',
     ),
   // Payload curado da tool get_lead_context.
   LEAD_CONTEXT_HISTORY_LIMIT: z.coerce.number().int().positive().default(20),
