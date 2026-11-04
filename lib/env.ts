@@ -317,6 +317,8 @@ const schema = z.object({
   // e NUNCA `z.enum` (motivo mais abaixo, em AGENT_DISPATCH_CONSUMER): quem valida
   // a grafia é o boot do worker, em `lib/agent-engine/env.ts`.
   OPENAI_REASONING_EFFORT: z.string().optional().default(""),
+  // Esforço de raciocínio pela OpenRouter (ver lib/agent-engine/env.ts e providers.ts).
+  OPENROUTER_REASONING_EFFORT: z.string().optional().default(""),
   // Transcrição de áudio num serviço COMPATÍVEL com o da OpenAI (Groq, um
   // Whisper próprio): a chave vale só para `/audio/transcriptions` — a conversa
   // com o cliente e a leitura de imagem continuam no provedor do ponto.

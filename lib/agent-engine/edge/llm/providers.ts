@@ -247,7 +247,10 @@ function esforcoAceitoPeloModelo(
  * `OPENAI_REASONING_EFFORT=high` faria as classificações, que pedem `none`,
  * voltarem a pensar antes de devolver uma palavra.
  */
-function comEsforcoDeRaciocinio(inner: typeof fetch, esforco: EsforcoDeRaciocinioOpenAI): typeof fetch {
+function comEsforcoDeRaciocinio(
+  inner: typeof fetch,
+  esforco: EsforcoDeRaciocinioOpenAI | EsforcoDeRaciocinioOpenRouter,
+): typeof fetch {
   return (input, init) => {
     const corpo = init?.body;
     if (typeof corpo === 'string') {
@@ -263,6 +266,68 @@ function comEsforcoDeRaciocinio(inner: typeof fetch, esforco: EsforcoDeRaciocini
     }
     return inner(input, init);
   };
+}
+
+/**
+ * Esforço de raciocínio das chamadas pela OpenRouter — knob
+ * OPENROUTER_REASONING_EFFORT (opcional; ausente = nada é injetado e vale o
+ * padrão do modelo, como sempre foi).
+ *
+ * Por que existe: na OpenRouter o raciocínio de muitos modelos é OBRIGATÓRIO e
+ * nasce no esforço MÁXIMO — o catálogo deles (`GET /api/v1/models`, campo
+ * `reasoning`) marca o `z-ai/glm-5.3-flash` com `mandatory: true` e
+ * `default_effort: "max"`. O token de raciocínio conta como SAÍDA, e o turno do
+ * agente tem teto de saída (`TETO_DE_SAIDA_PADRAO`, 4096). Medido em produção
+ * em 2026-11-04: um formulário de cadastro de 11 campos fez o modelo raciocinar
+ * até o teto duas vezes seguidas (`finish_reason: length`, 4096 tokens cada) e
+ * o turno fechou com ZERO mensagens ao cliente, depois de 73 s. As mensagens
+ * curtas passavam; a que vale a venda, não.
+ *
+ * O campo é o `reasoning` unificado da OpenRouter (doc "Reasoning Tokens"),
+ * no corpo da chamada de Chat Completions — a OpenRouter o traduz para o
+ * formato de cada família de modelo. Ao contrário da OpenAI direta, não há
+ * lista de modelos aqui: a tradução para o esforço que cada modelo aceita é da
+ * OpenRouter. Medido contra a API real em 2026-11-04, com o prompt do agente e
+ * um formulário de 11 campos (2 ferramentas):
+ *
+ *   glm-5.3-flash, padrão (max) .. 8,2 s, 292 tokens de raciocínio
+ *   glm-5.3-flash, low ........... 1,4–3,2 s, 0–33 tokens (5 de 5 chamaram as ferramentas)
+ *   glm-5.3-flash, minimal ....... aceito (fora do `supported_efforts`): 17 tokens
+ *   glm-5.3-flash, none .......... 400 "Reasoning is mandatory … cannot be disabled"
+ *   gpt-4o-mini (sem raciocínio), low/minimal .. campo ignorado, sem erro
+ *
+ * POR ISSO `none` NÃO É ACEITO: o knob vale para a instalação inteira, e cada
+ * organização escolhe o seu modelo. Com `none`, todo turno de toda organização
+ * num modelo de raciocínio obrigatório (133 dos 455 do catálogo da OpenRouter
+ * em 2026-11-04) receberia 400. `minimal` é o pedido de velocidade que nenhum
+ * modelo recusa.
+ */
+export type EsforcoDeRaciocinioOpenRouter = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+const ESFORCOS_OPENROUTER: readonly EsforcoDeRaciocinioOpenRouter[] = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
+
+export function esforcoDeRaciocinioOpenRouter(
+  valor: string | undefined = process.env.OPENROUTER_REASONING_EFFORT,
+): EsforcoDeRaciocinioOpenRouter | null {
+  const v = valor?.trim().toLowerCase();
+  if (!v) return null;
+  if (v === 'none') {
+    throw new Error(
+      'OPENROUTER_REASONING_EFFORT=none não é aceito — modelos de raciocínio obrigatório recusam toda chamada com ele; use minimal',
+    );
+  }
+  if (!(ESFORCOS_OPENROUTER as readonly string[]).includes(v)) {
+    throw new Error(
+      `OPENROUTER_REASONING_EFFORT inválido — use ${ESFORCOS_OPENROUTER.join(', ')} (ou deixe vazio)`,
+    );
+  }
+  return v as EsforcoDeRaciocinioOpenRouter;
 }
 
 /** Mesmo transporte contido para chat e serviços do provedor, inclusive redirects. */
@@ -294,10 +359,16 @@ export function createDefaultRegistry(opts?: {
   deepseekThinking?: RaciocinioDeepseek;
   /** Knob OPENAI_REASONING_EFFORT; ausente = lido do ambiente. `null` = não injeta. */
   openaiReasoningEffort?: EsforcoDeRaciocinioOpenAI | null;
+  /** Knob OPENROUTER_REASONING_EFFORT; ausente = lido do ambiente. `null` = não injeta. */
+  openrouterReasoningEffort?: EsforcoDeRaciocinioOpenRouter | null;
 }): ProviderRegistry {
   const extra = opts?.allowedHosts ?? [];
   const esforcoOpenAI =
     opts?.openaiReasoningEffort !== undefined ? opts.openaiReasoningEffort : esforcoDeRaciocinioOpenAI();
+  const esforcoOpenRouter =
+    opts?.openrouterReasoningEffort !== undefined
+      ? opts.openrouterReasoningEffort
+      : esforcoDeRaciocinioOpenRouter();
   const contain = (endpoint: string): typeof fetch => fetchDoProvedor(endpoint, extra);
   return {
     anthropic: (apiKey, modelId) =>
@@ -343,11 +414,14 @@ export function createDefaultRegistry(opts?: {
      */
     openrouter: (apiKey, modelId, baseUrl) => {
       const endpoint = baseUrl ?? OPENROUTER_ENDPOINT;
+      const contido = contain(endpoint);
       const provider = createOpenAI({
         apiKey,
         baseURL: endpoint,
         headers: cabecalhosDeAtribuicaoOpenRouter(),
-        fetch: contain(endpoint),
+        // Mesmo injetor da OpenAI: preserva o resto do corpo e não sobrescreve
+        // um `reasoning.effort` que a chamada já traga.
+        fetch: esforcoOpenRouter ? comEsforcoDeRaciocinio(contido, esforcoOpenRouter) : contido,
       });
       // Chat Completions, NÃO Responses: a OpenRouter fala a API da OpenAI
       // (chat/completions). O `createOpenAI()(modelId)` desta versão do SDK usa
