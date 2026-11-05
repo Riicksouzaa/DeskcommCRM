@@ -333,6 +333,11 @@ const schema = z.object({
   // da OpenAI da organização — assim como `TRANSCRIPTION_MODEL`. Leitura
   // tolerante em `idiomasDaTranscricao` (grafia errada não derruba o worker).
   TRANSCRIPTION_LANGUAGES: z.string().optional().default(""),
+  // Transcrição GRATUITA pelo Whisper local do compose (serviço `whisper`,
+  // perfil `transcricao-local`). Ligada, vence o serviço acima e a chave OpenAI;
+  // o endereço é fixo (`http://whisper:8000`). Leitura tolerante em
+  // `transcricaoLocalLigada` (lib/messaging/media/escada-de-transcricao.ts).
+  TRANSCRICAO_LOCAL: z.string().optional().default(""),
   // Endereço da API do Jev (TypeSafe AI). Vazio é ausente: vale
   // https://api.typesafe.ai. Existe para o dublê do e2e — a CHAVE nunca vem
   // daqui, é por organização (BYOK). Quem lê é `baseDaApiDoJev()`, em

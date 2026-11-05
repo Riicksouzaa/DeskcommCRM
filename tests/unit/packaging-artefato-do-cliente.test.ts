@@ -80,7 +80,7 @@ const servicos = lerServicos(compose);
 const NOSSOS = ["app", "worker", "scheduler", "voice-agent"] as const;
 
 describe("packaging — o artefato que o cliente instala", () => {
-  it("o parser enxerga os 10 serviços de produção", () => {
+  it("o parser enxerga os 11 serviços de produção", () => {
     // Guarda do próprio instrumento: se o parser parar de enxergar os serviços,
     // todos os testes abaixo passariam vazios — verde por não ter medido nada.
     //
@@ -95,6 +95,9 @@ describe("packaging — o artefato que o cliente instala", () => {
     // O par da telefonia por SIP (#677, profile `telefonia`) segue a mesma
     // divisão: `asterisk` é upstream, pinado por digest e fora de `NOSSOS`;
     // `voice-agent` é código nosso, publicado pelo CI, e está em `NOSSOS`.
+    //
+    // `whisper` (transcrição local, profile `transcricao-local`) é upstream
+    // (speaches, MIT), referenciado por tag fixa e fora de `NOSSOS`.
     expect([...servicos.keys()].sort()).toEqual(
       [
         "app",
@@ -106,6 +109,7 @@ describe("packaging — o artefato que o cliente instala", () => {
         "voice-agent",
         "wacalls",
         "waha",
+        "whisper",
         "worker",
       ].sort(),
     );

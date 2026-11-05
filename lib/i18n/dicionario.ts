@@ -5025,6 +5025,9 @@ export const DICIONARIO: Traducoes = {
   "a organização escolheu o ElevenLabs (Scribe) para ouvir os áudios, com a chave do ElevenLabs dela": {
     es: "la organización eligió ElevenLabs (Scribe) para escuchar los audios, con su propia clave de ElevenLabs",
   },
+  "o Whisper local desta instalação (TRANSCRICAO_LOCAL) ouve os áudios no próprio servidor, sem chave e sem custo": {
+    es: "el Whisper local de esta instalación (TRANSCRICAO_LOCAL) escucha los audios en el propio servidor, sin clave y sin costo",
+  },
   "o provedor de conversa desta organização é a OpenRouter, que transcreve na própria API com a mesma chave": {
     es: "el proveedor de conversación de esta organización es OpenRouter, que transcribe en la propia API con la misma clave",
   },

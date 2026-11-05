@@ -36,6 +36,7 @@ export interface TranscriptionProvider {
  * custo informado na resposta — mesmo caso dos serviços acima.
  */
 export const ORIGENS_DA_TRANSCRICAO_POR_SERVICO = [
+  "whisper_local",
   "servico_da_instalacao",
   "padrao_openai_compativel",
   "padrao_openrouter",

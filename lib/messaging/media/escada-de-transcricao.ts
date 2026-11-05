@@ -20,6 +20,10 @@
  *     administra a organização, para ESTE ponto. Sem chave do ElevenLabs
  *     utilizável o degrau não existe e a escada segue — nunca um áudio mudo
  *     por causa de uma escolha que não pode ser cumprida.
+ * 1a. **Whisper local do compose** (`TRANSCRICAO_LOCAL`) — gratuito, sem
+ *     chave, o áudio não sai do servidor. Endereço fixo (`http://whisper:8000`,
+ *     serviço `whisper` do perfil `transcricao-local`). Escolha explícita da
+ *     instalação, por isso vence os degraus 1 e 2.
  *  1. **Serviço de transcrição da instalação** (`TRANSCRIPTION_API_KEY`) — a
  *     escolha EXPLÍCITA de transcrição do `.env`. Ignorá-la em silêncio para
  *     falar com o modelo de conversa seria trocar o fornecedor de quem já
@@ -122,6 +126,8 @@ export interface AnuncioDaTranscricao {
 export const MOTIVOS_DA_TRANSCRICAO = {
   elevenlabsEscolhido:
     "a organização escolheu o ElevenLabs (Scribe) para ouvir os áudios, com a chave do ElevenLabs dela",
+  whisperLocal:
+    "o Whisper local desta instalação (TRANSCRICAO_LOCAL) ouve os áudios no próprio servidor, sem chave e sem custo",
   servicoDaInstalacao:
     "o serviço de transcrição configurado nesta instalação (TRANSCRIPTION_API_KEY) é o que ouve os áudios",
   chaveOpenai: "a chave OpenAI desta organização ou instalação usa o padrão de transcrição de sempre",
@@ -148,6 +154,19 @@ export const MOTIVOS_DA_TRANSCRICAO = {
  * trocaria um modelo que funciona por um id que o catálogo dela não tem.
  */
 export const MODELO_DE_TRANSCRICACAO_OPENROUTER = "openai/whisper-large-v3";
+
+/**
+ * O Whisper local (degrau 1a): o serviço `whisper` do `docker-compose.prod.yml`,
+ * na rede `internal`. Fixo de propósito — ver o comentário do degrau.
+ */
+export const ENDERECO_DO_WHISPER_LOCAL = "http://whisper:8000";
+/** Multilíngue, bom em pt-BR e leve em CPU (int8, ~710 MiB medidos). */
+export const MODELO_DO_WHISPER_LOCAL = "Systran/faster-whisper-small";
+
+/** `TRANSCRICAO_LOCAL` ligada? Aceita as grafias comuns; o resto é desligado. */
+export function transcricaoLocalLigada(bruto: string | undefined): boolean {
+  return ["1", "true", "on", "sim", "ligada", "ligado", "yes"].includes((bruto ?? "").trim().toLowerCase());
+}
 /** Multipart oficial: 25 MB. O teto global do Storage continua 50 MiB. */
 export const LIMITE_MULTIPART_OPENROUTER_BYTES = 25_000_000;
 
@@ -260,6 +279,32 @@ export async function decidirTranscricao(entrada: {
       transcriber: elevenLabsTranscriptionProvider({ apiKey: scribe.apiKey, model: scribe.modelId }),
       motivo: MOTIVOS_DA_TRANSCRICAO.elevenlabsEscolhido,
       anuncio: { provider: "elevenlabs", modelId: scribe.modelId },
+    };
+  }
+
+  // 1a · Whisper local do compose — gratuito, o áudio não sai do servidor.
+  //      Escolha explícita da INSTALAÇÃO (`TRANSCRICAO_LOCAL`), no mesmo nível
+  //      do serviço do `.env`, e ANTES dele: quem ligou o serviço local quer
+  //      que ele ouça. O endereço é FIXO no código (o serviço `whisper` do
+  //      `docker-compose.prod.yml` na rede `internal`, como `http://waha:3000`)
+  //      e por isso não passa pela régua de destino: não há URL configurável a
+  //      apontar para outro lugar, e a chamada não leva credencial nenhuma.
+  if (transcricaoLocalLigada(env.TRANSCRICAO_LOCAL)) {
+    const modelo = (env.TRANSCRIPTION_MODEL || "").trim() || MODELO_DO_WHISPER_LOCAL;
+    return {
+      origem: "whisper_local",
+      transcriber: apiTranscriptionProvider({
+        // O speaches não exige chave sem `API_KEY` próprio; o cabeçalho vai
+        // com um valor fixo e público, nunca um segredo.
+        apiKey: "local",
+        baseUrl: ENDERECO_DO_WHISPER_LOCAL,
+        model: modelo,
+        // Sem idioma declarado o Whisper alucina em áudio curto (ver
+        // `TranscriptionCreds.languages`); o produto é pt-BR por padrão.
+        languages: idiomas.length > 0 ? idiomas : ["pt"],
+      }),
+      motivo: MOTIVOS_DA_TRANSCRICAO.whisperLocal,
+      anuncio: { provider: "whisper_local", modelId: modelo },
     };
   }
 

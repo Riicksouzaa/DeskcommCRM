@@ -104,7 +104,11 @@ vi.mock("@/lib/messaging/media/derive", () => ({
 
 // resolveOrgLlmConfig e generateText mockados: o worker precisa de credencial p/
 // montar as deps, mas o teste não exercita rede.
-vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
+vi.mock("@/lib/agent-engine/edge/llm/credentials", async (importOriginal) => ({
+  // O erro tipado e o orçamento desligado são os REAIS: o worker decide por
+  // `instanceof LlmNotConfiguredError`, e um mock sem a classe faria o
+  // `instanceof` estourar em vez de testar a decisão.
+  ...(await importOriginal<object>()),
   resolveOrgLlmConfig: vi.fn(async () => ({
     provider: "openai",
     apiKey: "sk-test",
@@ -120,7 +124,11 @@ vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
 import { deriveMessageMedia, MARCADOR_NAO_LIDA } from "@/workers/media-derive-worker";
 import { deriveMediaText } from "@/lib/messaging/media/derive";
 import { DETALHE_TECNICO } from "@/lib/event-log/aviso-de-evento-morto";
-import { resolveOrgLlmConfig, type OrgLlmConfig } from "@/lib/agent-engine/edge/llm/credentials";
+import {
+  LlmNotConfiguredError,
+  resolveOrgLlmConfig,
+  type OrgLlmConfig,
+} from "@/lib/agent-engine/edge/llm/credentials";
 import { logger } from "@/lib/logger";
 
 function configResolvida(over: Partial<OrgLlmConfig> = {}): OrgLlmConfig {
@@ -201,6 +209,33 @@ describe("deriveMessageMedia", () => {
       "image/jpeg",
       expect.anything(),
     );
+  });
+
+  it("áudio NÃO morre quando o modelo padrão da org não tem credencial (produção, 04/11/2026)", async () => {
+    // A org só tem OpenRouter e o `settings.llm` ficou na semente (anthropic):
+    // o padrão lança, mas a escada tem quem ouça sem modelo de conversa.
+    vi.mocked(resolveOrgLlmConfig).mockImplementation(async (_pool, _cfg, _orgId, override) => {
+      if (override?.provider === "openai") return configResolvida({ apiKey: "sk-openai" });
+      throw new LlmNotConfiguredError();
+    });
+
+    const r = await deriveMessageMedia(eventRow());
+
+    expect(r.status).toBe("ok");
+    expect(deriveMediaText).toHaveBeenCalledWith("audio", expect.anything(), "audio/ogg", expect.anything());
+    expect(updateEqMock).toHaveBeenCalledWith(
+      expect.objectContaining({ media_derived_text: "transcrição do áudio real", media_derived_status: "ready" }),
+    );
+  });
+
+  it("controle: imagem continua exigindo o modelo padrão (é dele a visão)", async () => {
+    messageRow.type = "image";
+    messageRow.media_mime = "image/jpeg";
+    vi.mocked(resolveOrgLlmConfig).mockRejectedValue(new LlmNotConfiguredError());
+
+    await deriveMessageMedia(eventRow());
+
+    expect(deriveMediaText).not.toHaveBeenCalled();
   });
 
   it("baixa a mídia, deriva e grava ready", async () => {

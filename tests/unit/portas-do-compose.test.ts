@@ -155,6 +155,7 @@ describe("a fronteira de rede do que o cliente instala", () => {
         "voice-agent",
         "wacalls",
         "waha",
+        "whisper",
         "worker",
       ].sort(),
     );

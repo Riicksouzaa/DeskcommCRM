@@ -20,6 +20,8 @@ import {
 import { normalizarChaveDeOrcamento } from "@/lib/agent-engine/edge/llm/orcamento";
 import { chaveDeOrcamentoDaInstalacao } from "@/lib/instalacao/comportamento";
 import {
+  LlmNotConfiguredError,
+  ORCAMENTO_DESLIGADO,
   resolveOrgLlmConfig,
   type LlmEdgeConfig,
   type OrgLlmConfig,
@@ -319,8 +321,41 @@ export async function deriveMessageMedia(row: EventRow): Promise<HandlerResult> 
       }
     }
 
+    // ⚠️ O MODELO PADRÃO DA ORGANIZAÇÃO NÃO É DONO DO ÁUDIO.
+    //
+    // Medido em produção (04/11/2026): organização com SÓ credencial OpenRouter
+    // e `settings.llm` ainda na semente (`anthropic`/`claude-sonnet-5`). O agente
+    // conversava normalmente — o modelo dele vem de outro lugar —, mas TODA nota
+    // de voz terminava `failed` com "org sem credencial LLM utilizável": este
+    // `resolveOrgLlmConfig` lançava ANTES da escada de transcrição, e a escada
+    // tem degraus (o serviço da instalação, o Whisper local, a chave OpenAI)
+    // que não precisam de modelo de conversa nenhum.
+    //
+    // Por isso, para ÁUDIO, padrão sem credencial vira "sem modelo de conversa"
+    // e a escada decide. Imagem e vídeo continuam exigindo o padrão: os dois
+    // precisam de visão, e é dela que este `llm` existe.
+    let semModeloPadrao = false;
     if (!llm) {
-      llm = await resolveOrgLlmConfig(derivePool(), llmCfg, row.organization_id);
+      try {
+        llm = await resolveOrgLlmConfig(derivePool(), llmCfg, row.organization_id);
+      } catch (err) {
+        if (msg.type !== "audio" || !(err instanceof LlmNotConfiguredError)) throw err;
+        logger.warn("[media-derive] modelo padrão da org sem credencial; o áudio segue para a escada de transcrição", {
+          organization_id: row.organization_id,
+        });
+        semModeloPadrao = true;
+        llm = {
+          provider: "",
+          apiKey: "",
+          origemDaChave: "credencial_da_organizacao",
+          defaultModel: null,
+          params: {},
+          enabledModels: [],
+          orcamento: ORCAMENTO_DESLIGADO,
+          orcamentoIndisponivelPorque: null,
+          baseUrl: null,
+        };
+      }
     }
 
     // ─── DE QUEM É O OUVIDO: a escada, não a árvore de if (#2171) ──────────
@@ -342,7 +377,7 @@ export async function deriveMessageMedia(row: EventRow): Promise<HandlerResult> 
     // leitura de foto que nunca vai usar o degrau (o teste #1591 cobre justamente
     // que o binding de visão não dispare uma resolução que ninguém pediu).
     const precisaTranscricao = msg.type === "audio" || msg.type === "video";
-    let conversa: Awaited<ReturnType<typeof resolveOrgLlmConfig>> | null = llm;
+    let conversa: Awaited<ReturnType<typeof resolveOrgLlmConfig>> | null = semModeloPadrao ? null : llm;
     if (precisaTranscricao && bindingDaVisao) {
       // O `llm` acima é o binding de VISÃO. O degrau 3 pede o modelo de
       // CONVERSA — o padrão da organização, resolvido sem override. Pode não

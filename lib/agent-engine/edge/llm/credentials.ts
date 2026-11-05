@@ -255,7 +255,7 @@ interface LinhaDeConfig {
   limiar_pct?: number | string | null;
 }
 
-const ORCAMENTO_DESLIGADO: OrcamentoDaOrg = {
+export const ORCAMENTO_DESLIGADO: OrcamentoDaOrg = {
   modo: 'off',
   tetoCents: 0,
   efetivoEm: null,

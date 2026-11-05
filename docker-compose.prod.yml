@@ -351,6 +351,46 @@ services:
   #
   # A API do WaCalls fica só na rede interna, alcançável pelo app e pelo worker.
   # `tests/unit/portas-do-compose.test.ts` reprova quem publicar porta aqui.
+  whisper:
+    # Transcrição de áudio GRATUITA e local (faster-whisper via speaches, API
+    # `/v1/audio/transcriptions` compatível com a OpenAI). Opcional: só sobe com
+    # o perfil `transcricao-local` (`COMPOSE_PROFILES=transcricao-local` no .env).
+    # O áudio do cliente não sai do servidor e não há chave nem custo por minuto.
+    #
+    # O worker fala com ele quando `TRANSCRICAO_LOCAL=ligada` (degrau 1a da
+    # escada em lib/messaging/media/escada-de-transcricao.ts), no endereço fixo
+    # `http://whisper:8000`. Modelo: `TRANSCRIPTION_MODEL` (vazio = small);
+    # idioma: `TRANSCRIPTION_LANGUAGES` (vazio = pt). As duas pontas leem o
+    # mesmo `TRANSCRIPTION_MODEL`, então o modelo baixado é o modelo pedido.
+    #
+    # O speaches não baixa modelo sozinho na primeira transcrição (responde 404
+    # "not installed locally"): o comando abaixo pede o download ao próprio
+    # servidor assim que ele sobe, e o volume guarda o modelo entre reinícios.
+    profiles: ["transcricao-local"]
+    image: ${WHISPER_IMAGE:-ghcr.io/speaches-ai/speaches:0.8.3-cpu}
+    pull_policy: ${WHISPER_PULL_POLICY:-missing}
+    restart: unless-stopped
+    # `small` em int8 ocupa ~710 MiB residentes (medido em 04/11/2026); o teto evita que um áudio longo
+    # leve a VPS inteira (mesma razão do teto do worker).
+    mem_limit: ${WHISPER_MEM_LIMIT:-1536m}
+    environment:
+      MODELO_DO_WHISPER: ${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}
+      WHISPER__COMPUTE_TYPE: int8
+      WHISPER__TTL: "-1"            # mantém o modelo carregado: sem 5 s de carga por áudio
+      ENABLE_UI: "false"
+      LOG_LEVEL: info
+    command:
+      - sh
+      - -c
+      - >-
+        (until curl -fsS -X POST "http://127.0.0.1:8000/v1/models/$${MODELO_DO_WHISPER}" >/dev/null;
+        do sleep 5; done) &
+        exec uvicorn --factory speaches.main:create_app
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    logging: *default-logging
+    networks: [internal]
+
   wacalls:
     profiles: ["voz"]
     mem_limit: 256m
@@ -515,6 +555,7 @@ volumes:
   waha-data:
   waha-media:
   wacalls-data:
+  whisper-models:
   asterisk-data:
   asterisk-logs:
   caddy-data:
