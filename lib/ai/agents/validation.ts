@@ -8,6 +8,7 @@
  * Postgres function (defense in depth).
  */
 import { z } from "zod";
+import { normalizarTags, TAMANHO_MAXIMO_DA_TAG } from "@/lib/contacts/tag-normalizada";
 import { ehToolIdRemoto } from "@/lib/mcp/servidor-externo/ids";
 import { ESCOLHAS_NO_ENVIO } from "@/lib/agenda/escolha-no-envio";
 import { VALID_TOOL_IDS } from "@/lib/mcp/tools/catalog";
@@ -48,7 +49,7 @@ const triggerConfigSchema = z
           .nullable()
           .optional()
           .default(null),
-        // PÚBLICO DO AGENTE (#3722). Quatro listas opcionais, no jsonb da
+        // PÚBLICO DO AGENTE (#3722). Seis listas opcionais, no jsonb da
         // versão — sem coluna nova, sem migration. Sem estas linhas o schema
         // `.strict()` RECUSA o payload da tela (o campo chegaria como chave
         // desconhecida) e o operador não conseguiria salvar o público.
@@ -59,6 +60,11 @@ const triggerConfigSchema = z
         exclude_tags: z.array(z.string().trim().min(1).max(60)).max(TETO_DO_PUBLICO).default([]),
         include_pipeline_ids: z.array(UUID).max(TETO_DO_PUBLICO).default([]),
         exclude_pipeline_ids: z.array(UUID).max(TETO_DO_PUBLICO).default([]),
+        // Origem do contato (`contacts.source`). Vocabulário ABERTO, como a
+        // coluna: a tela oferece as origens conhecidas, e a API aceita qualquer
+        // valor que um integrador grave em `source`.
+        include_sources: z.array(z.string().trim().min(1).max(60)).max(TETO_DO_PUBLICO).default([]),
+        exclude_sources: z.array(z.string().trim().min(1).max(60)).max(TETO_DO_PUBLICO).default([]),
       })
       .default({
         ignore_groups: true,
@@ -69,6 +75,8 @@ const triggerConfigSchema = z
         exclude_tags: [],
         include_pipeline_ids: [],
         exclude_pipeline_ids: [],
+        include_sources: [],
+        exclude_sources: [],
       }),
     concurrency: z.enum(["one_per_conversation", "one_per_contact"]).default("one_per_conversation"),
   })
@@ -374,6 +382,13 @@ export const testRunSchema = z
         name: z.string().trim().min(1).max(120).optional(),
         phone: z.string().trim().min(3).max(40).optional(),
       })
+      .optional(),
+    // Etiquetas da conversa SIMULADA (spec 27, fatia 3): é o que deixa o Testar provar que a
+    // skill entra pela etiqueta. Mesma normalização do CRM; até 20. Ausente = nenhuma.
+    sample_tags: z
+      .array(z.string().max(TAMANHO_MAXIMO_DA_TAG))
+      .max(20)
+      .transform((tags) => normalizarTags(tags))
       .optional(),
   })
   .strict();
