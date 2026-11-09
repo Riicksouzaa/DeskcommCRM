@@ -22,14 +22,35 @@ import { createClient } from "@/lib/supabase/server";
 const admin = vi.hoisted(() => ({
   createUser: vi.fn(),
   deleteUser: vi.fn(),
+  generateLink: vi.fn(),
   resend: vi.fn(),
+}));
+const email = vi.hoisted(() => ({
+  configurado: vi.fn(async () => false),
+  enviar: vi.fn(),
+  audit: vi.fn(),
+  // O que `after()` recebeu: roda só quando o teste mandar, como depois da resposta.
+  depois: [] as Array<() => unknown>,
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: vi.fn(() => ({ auth: { admin: { createUser: admin.createUser, deleteUser: admin.deleteUser } } })),
+  createAdminClient: vi.fn(() => ({
+    auth: {
+      admin: { createUser: admin.createUser, deleteUser: admin.deleteUser, generateLink: admin.generateLink },
+    },
+  })),
 }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+vi.mock("next/server", () => ({ after: (fn: () => unknown) => void email.depois.push(fn) }));
+vi.mock("@/lib/email/roteador", () => ({ emailConfigurado: email.configurado, sendEmail: email.enviar }));
+vi.mock("@/lib/audit", () => ({ audit: email.audit, hashEmail: (e: string) => `hash:${e}` }));
+vi.mock("@/lib/branding/saida", () => ({
+  marcaDaSaida: vi.fn(async () => ({ nome: "Marca", accent: "#123456", accentFg: "#ffffff" })),
+}));
+vi.mock("@/lib/email/templates/acesso-gotrue", () => ({
+  montarEmailDeAcesso: (_m: string, _marca: unknown, link: string) => ({ subject: "Confirme", html: link, text: link }),
+}));
 
 const convite = async () => await import("./convite-no-gotrue");
 
@@ -50,6 +71,8 @@ const entrada = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  email.configurado.mockResolvedValue(false);
+  email.depois.length = 0;
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -151,6 +174,106 @@ describe("criarContaDeConvite", () => {
     // "conta já existe" com um e-mail que nunca chegou — conta órfã, que é o
     // defeito que a issue #1653 existe para fechar.
     expect(admin.deleteUser).toHaveBeenCalledWith("u-2");
+  });
+
+  describe("com transporte de e-mail no CRM (SMTP lento não segura a tela)", () => {
+    beforeEach(() => {
+      email.configurado.mockResolvedValue(true);
+    });
+
+    it("responde ANTES do envio: o GoTrue só gera o token, o CRM envia em `after()`", async () => {
+      admin.createUser.mockResolvedValue({ data: { user: { id: "u-3" } }, error: null });
+      admin.generateLink.mockResolvedValue({ data: { properties: { hashed_token: "hash/+=" } }, error: null });
+      email.enviar.mockResolvedValue({ ok: true, via: "smtp" });
+
+      const r = await (await convite()).criarContaDeConvite(entrada);
+
+      expect(r).toEqual({ ok: true, sessao_ativa: false });
+      // Medido em produção: o `/resend` do GoTrue esperava o SMTP (~30 s) e
+      // estourava a tela (20 s). Ele não pode mais ser chamado neste caminho.
+      expect(admin.resend).not.toHaveBeenCalled();
+      expect(admin.generateLink).toHaveBeenCalledWith({
+        type: "signup",
+        email: entrada.email,
+        password: entrada.password,
+        options: {
+          data: { invite_token: entrada.inviteToken, full_name: entrada.fullName },
+          redirectTo: entrada.emailRedirectTo,
+        },
+      });
+      expect(email.enviar).not.toHaveBeenCalled();
+      expect(email.depois).toHaveLength(1);
+
+      await email.depois[0]!();
+      expect(email.enviar).toHaveBeenCalledTimes(1);
+      // `&`, não `?`: o redirect já traz `?type=signup`, e o `token_hash`
+      // codificado é o que `/auth/confirm` repassa a `/login/continuar`.
+      expect(email.enviar.mock.calls[0]![0]).toMatchObject({
+        to: entrada.email,
+        html: `${entrada.emailRedirectTo}&token_hash=hash%2F%2B%3D`,
+      });
+      expect(email.audit).not.toHaveBeenCalled();
+    });
+
+    it("envio que falha depois da resposta NÃO apaga a conta e fica na trilha", async () => {
+      admin.createUser.mockResolvedValue({ data: { user: { id: "u-4" } }, error: null });
+      admin.generateLink.mockResolvedValue({ data: { properties: { hashed_token: "h" } }, error: null });
+      email.enviar.mockResolvedValue({ ok: false, error: "send_failed", details: "timeout" });
+
+      await (await convite()).criarContaDeConvite(entrada);
+      await email.depois[0]!();
+
+      // Apagar aqui é o defeito medido: o e-mail podia ter saído e o link
+      // chegaria apontando para uma conta inexistente.
+      expect(admin.deleteUser).not.toHaveBeenCalled();
+      expect(email.audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "auth.signup_failed",
+          metadata: expect.objectContaining({ reason: "email_de_confirmacao_falhou", via: "admin_convite" }),
+        }),
+      );
+    });
+
+    it("conta de tentativa anterior, NÃO confirmada → link novo, sem erro", async () => {
+      admin.createUser.mockResolvedValue({
+        data: null,
+        error: { message: "already been registered", code: "email_exists", status: 422 },
+      });
+      admin.generateLink.mockResolvedValue({ data: { properties: { hashed_token: "novo" } }, error: null });
+
+      const r = await (await convite()).criarContaDeConvite(entrada);
+
+      expect(r).toEqual({ ok: true, sessao_ativa: false });
+      expect(email.depois).toHaveLength(1);
+    });
+
+    it("conta já CONFIRMADA → `conta_ja_existe` (o GoTrue recusa o link)", async () => {
+      admin.createUser.mockResolvedValue({
+        data: null,
+        error: { message: "already been registered", code: "email_exists", status: 422 },
+      });
+      admin.generateLink.mockResolvedValue({
+        data: null,
+        error: { message: "A user with this email address has already been registered", code: "email_exists", status: 422 },
+      });
+
+      const r = await (await convite()).criarContaDeConvite(entrada);
+
+      expect(r).toEqual({ ok: false, motivo: "conta_ja_existe" });
+      expect(email.depois).toHaveLength(0);
+    });
+
+    it("conta criada agora e sem token → desfaz a conta (nada de conta órfã)", async () => {
+      admin.createUser.mockResolvedValue({ data: { user: { id: "u-5" } }, error: null });
+      admin.generateLink.mockResolvedValue({ data: null, error: { message: "db fora", status: 500 } });
+      admin.deleteUser.mockResolvedValue({ error: null });
+
+      const r = await (await convite()).criarContaDeConvite(entrada);
+
+      expect(r).toEqual({ ok: false, motivo: "criacao_recusada", detalhe: "db fora" });
+      expect(admin.deleteUser).toHaveBeenCalledWith("u-5");
+      expect(email.depois).toHaveLength(0);
+    });
   });
 
   it("429 do GoTrue vira `rate_limited`, igual ao caminho de sempre", async () => {

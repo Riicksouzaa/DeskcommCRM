@@ -72,10 +72,34 @@ export function assuntoDoModelo(modelo: ModeloDeAcesso, marca: MarcaDeSaida): st
  * exige porque descarta `height` de style em imagem.
  */
 export function montarTemplateDeAcesso(modelo: ModeloDeAcesso, marca: MarcaDeSaida): string {
-  const t = COPIA[modelo];
-
   // As chaves duplas ficam CRUAS de propósito: o GoTrue as substitui.
-  const destino = "{{ .RedirectTo }}&token_hash={{ .TokenHash }}";
+  return corpoDoAcesso(modelo, marca, "{{ .RedirectTo }}&token_hash={{ .TokenHash }}");
+}
+
+/**
+ * O MESMO e-mail, já com o link — para quando quem envia somos NÓS.
+ *
+ * Existe para a conta de convidado (`lib/auth/convite-no-gotrue.ts`): o CRM
+ * pede o `token_hash` ao GoTrue pela admin API e entrega o e-mail pelo próprio
+ * transporte, fora do prazo de requisição do GoTrue. Mesmo texto e mesmo
+ * formato de link que o molde acima, para a pessoa não ver dois e-mails
+ * diferentes conforme o caminho.
+ */
+export function montarEmailDeAcesso(
+  modelo: ModeloDeAcesso,
+  marca: MarcaDeSaida,
+  link: string,
+): { subject: string; html: string; text: string } {
+  const t = COPIA[modelo];
+  return {
+    subject: assuntoDoModelo(modelo, marca),
+    html: corpoDoAcesso(modelo, marca, escapeHtml(link)),
+    text: `${t.titulo}\n\n${t.corpo(marca.nome)}\n\n${link}\n\n${t.rodape}`,
+  };
+}
+
+function corpoDoAcesso(modelo: ModeloDeAcesso, marca: MarcaDeSaida, destino: string): string {
+  const t = COPIA[modelo];
 
   return estruturaDeEmail(marca, `    <h1 style="font-size:22px;line-height:1.3;margin:0 0 16px;color:${NEUTROS_DE_SAIDA.texto}">
       ${escapeHtml(t.titulo)}

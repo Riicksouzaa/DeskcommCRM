@@ -204,6 +204,7 @@ export async function signUp(
       inviteToken: convite,
       fullName: (parsed.data as SignupComConviteInput).full_name,
       emailRedirectTo: `${origin}/auth/confirm?type=signup`,
+      requestId,
     });
 
     if (!criada.ok) {

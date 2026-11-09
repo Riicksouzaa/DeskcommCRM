@@ -5,6 +5,7 @@ import type { MarcaDeSaida } from "@/lib/branding/saida";
 import {
   MODELOS_DE_ACESSO,
   assuntoDoModelo,
+  montarEmailDeAcesso,
   montarTemplateDeAcesso,
 } from "@/lib/email/templates/acesso-gotrue";
 
@@ -80,5 +81,22 @@ describe("moldes de acesso do GoTrue", () => {
     // E não abre a porta para sub-path futuro nascer público de carona.
     expect(publico("/email-templates/qualquer-outra")).toBe(false);
     expect(publico("/email-templates/confirmation/x")).toBe(false);
+  });
+});
+
+describe("e-mail de acesso com o link pronto (enviado pelo CRM)", () => {
+  const link = "https://crm.exemplo.test/auth/confirm?type=signup&token_hash=abc%2F";
+  const msg = montarEmailDeAcesso("confirmation", MARCA, link);
+
+  it("leva o link real, escapado no HTML, e nenhuma chave do GoTrue", () => {
+    // O `&` vira `&amp;` dentro do atributo: é o HTML válido, e o cliente de
+    // e-mail devolve o `&` ao abrir o link.
+    expect(msg.html).toContain(link.replace(/&/g, "&amp;"));
+    expect(msg.html).not.toContain("{{");
+    expect(msg.text).toContain(link);
+  });
+
+  it("mesmo assunto do molde que o GoTrue usa", () => {
+    expect(msg.subject).toBe(assuntoDoModelo("confirmation", MARCA));
   });
 });
