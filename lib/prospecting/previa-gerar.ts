@@ -37,6 +37,8 @@ import {
 } from "./personalizar";
 import { chaveDaAuditoria, type PreviaSalva } from "./previa";
 import { campaignConfigSchema, type Prospect } from "./schema";
+import { montarRoteiroDoCandidato } from "./produto/roteiro-do-candidato";
+import type { ProdutoSnapshot } from "./produto/snapshot";
 import { siteEfetivo } from "./site-efetivo";
 
 /** O que a função precisa de um candidato (a rota e o preparo leem o mesmo recorte). */
@@ -51,7 +53,13 @@ export interface LinhaParaPrevia {
 }
 
 /** Por que não saiu prévia — a rota traduz em 409/422, o preparo só registra. */
-export type MotivoSemPrevia = "auditoria_pendente" | "sem_agente" | "ia_falhou";
+export type MotivoSemPrevia =
+  | "auditoria_pendente"
+  | "sem_agente"
+  | "ia_falhou"
+  // Campanha com produto: a empresa não tem achado citável com solução / o texto montado seria barrado.
+  | "sem_achado"
+  | "texto_barrado";
 
 export type ResultadoDaPrevia =
   | {
@@ -60,6 +68,8 @@ export type ResultadoDaPrevia =
       previa: PreviaSalva;
       estrategia: EstrategiaDoLead;
       score: Pontuacao;
+      /** Só campanha com produto: a Msg 2 que o agente enviará literal se a pessoa aceitar. */
+      mensagem2?: string;
     }
   | { ok: false; motivo: MotivoSemPrevia; detalhe?: string };
 
@@ -70,6 +80,12 @@ export async function gerarPreviaDoCandidato(
   opcoes: {
     /** Já lida pelo chamador (o preparo lê UMA vez por rodada, não por candidato). */
     personalizacao?: PersonalizacaoProspeccao;
+    /**
+     * Retrato de produto para a PRÉVIA de uma campanha ainda em rascunho (o operador escolheu o
+     * produto, mas a ativação — que grava o retrato — ainda não aconteceu). Campanha ativa usa o
+     * retrato dela e este campo é ignorado.
+     */
+    snapshotDeRascunho?: ProdutoSnapshot | null;
   } = {},
 ): Promise<ResultadoDaPrevia> {
   // A prévia usa o MESMO veredito que a tela mostra. Quem não tem site próprio
@@ -82,6 +98,7 @@ export async function gerarPreviaDoCandidato(
   if (!cfg?.success || !cfg.data.agent_id) return { ok: false, motivo: "sem_agente" };
 
   const ofertas = (cfg.data.ofertas ?? ["site"]) as OfertaDaCampanha[];
+  const snapshot = cfg.data.product_snapshot ?? opcoes.snapshotDeRascunho ?? null;
   // Mesmos fios do envio (voz + vocabulário da org + estratégia): a prévia só
   // vale se for byte a byte o que o tick mandaria. A estratégia vem da MESMA
   // fonte que o worker usa (`estrategiaDoCandidato`).
@@ -92,6 +109,44 @@ export async function gerarPreviaDoCandidato(
     sobrescritaVocabulario: personalizacao.vocabulario ?? null,
     status: linha.status,
   });
+  // CAMPANHA COM PRODUTO: a Msg 1 e a Msg 2 saem de `montarRoteiroDoCandidato` — a MESMA função
+  // que o worker chama no envio. Sem IA, sem custo, e a prévia é o texto que o tick mandaria.
+  if (snapshot) {
+    const locale =
+      (
+        await pool.query<{ locale: string | null }>("select locale from organizations where id=$1", [org])
+      ).rows[0]?.locale ?? null;
+    const roteiro = montarRoteiroDoCandidato({
+      data: linha.data,
+      snapshot,
+      locale,
+      agoraIso: new Date().toISOString(),
+    });
+    if (roteiro.estado === "pendente") return { ok: false, motivo: "auditoria_pendente" };
+    if (roteiro.estado === "inelegivel")
+      return { ok: false, motivo: "sem_achado", detalhe: roteiro.motivo };
+    if (roteiro.barrada.length > 0)
+      return { ok: false, motivo: "texto_barrado", detalhe: roteiro.barrada.join(" ") };
+    return {
+      ok: true,
+      texto: roteiro.msg1,
+      mensagem2: roteiro.msg2,
+      previa: {
+        texto: roteiro.msg1,
+        baseada_em: chaveDaAuditoria(linha.data) ?? `${site.classe}@derivado`,
+        gerada_em: new Date().toISOString(),
+        agente_id: cfg.data.agent_id,
+      },
+      estrategia,
+      score: pontuarCandidato(
+        linha.data.rating,
+        linha.data.reviews,
+        site.classe,
+        ofertas[0] ?? "site",
+        site.provisorio ?? false,
+      ),
+    };
+  }
   const gerado = await gerarAbordagemDeFormulario(pool, llmEdgeConfigFromEnv(env), {
     tenantId: org,
     agentId: cfg.data.agent_id,
@@ -102,12 +157,12 @@ export async function gerarPreviaDoCandidato(
       blocoVozVendedor(personalizacao) || undefined,
       estrategia,
       // A mesma regra do envio: a prévia é byte a byte o que o tick mandaria.
-      cfg.data.exit_offer !== "first_message",
+      cfg.data.exit_offer === "second_message",
     ),
     origem: "Pesquisa de empresas",
     origemDaAbordagem: "prospeccao_fria",
     // Modo "saída na 2ª": sem Auditoria/Detalhe, como no envio (worker.ts).
-    dados: montarDadosDeAbordagem(linha.data, cfg.data.exit_offer !== "first_message" ? null : site),
+    dados: montarDadosDeAbordagem(linha.data, cfg.data.exit_offer === "second_message" ? null : site),
   });
   if (!gerado.ok) return { ok: false, motivo: "ia_falhou", detalhe: gerado.reason };
 

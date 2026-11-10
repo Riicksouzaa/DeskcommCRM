@@ -165,6 +165,27 @@
       "col": 5,
       "type": "component",
       "label": "Consulta da análise do site na conversa (só leitura, por contato do turno)"
+    },
+    {
+      "id": "produto-cadastrado",
+      "lane": "db",
+      "col": 1,
+      "type": "component",
+      "label": "Produto cadastrado da organização e retrato (product_snapshot) gravado na ativação"
+    },
+    {
+      "id": "roteiro-do-produto",
+      "lane": "app",
+      "col": 4,
+      "type": "component",
+      "label": "Roteiro achado primeiro: Msg 1 montada pelo sistema, sem IA; Msg 2 entregue pronta ao agente"
+    },
+    {
+      "id": "msg2-estado",
+      "lane": "db",
+      "col": 6,
+      "type": "component",
+      "label": "Estado da Msg 2 (msg2_sent_at/msg2_literal) e conferência pós-turno"
     }
   ],
   "edges": [
@@ -342,6 +363,51 @@
       "from": "whatsapp-check",
       "to": "operator",
       "label": "a lista mostra Tem/Sem WhatsApp e o contador"
+    },
+    {
+      "from": "operator",
+      "to": "produto-cadastrado",
+      "label": "escolhe o produto da campanha; o servidor grava o retrato na ativação"
+    },
+    {
+      "from": "produto-cadastrado",
+      "to": "candidates",
+      "label": "empresa sem achado citável com solução: Não abordado, com o motivo"
+    },
+    {
+      "from": "produto-cadastrado",
+      "to": "roteiro-do-produto",
+      "label": "o retrato é a única fonte do texto (editar o produto não muda a campanha)"
+    },
+    {
+      "from": "site-enrich",
+      "to": "roteiro-do-produto",
+      "label": "só o achado medido e definitivo entra na mensagem"
+    },
+    {
+      "from": "roteiro-do-produto",
+      "to": "queue",
+      "label": "Msg 1 validada (proibição, emoji, rodapé) antes de gastar cota; barrada: falha do candidato + aviso na Central"
+    },
+    {
+      "from": "roteiro-do-produto",
+      "to": "inbound-turn",
+      "label": "Msg 2 pronta no sufixo por-lead do turno, enviada literal"
+    },
+    {
+      "from": "inbound-turn",
+      "to": "msg2-estado",
+      "label": "conferência do corpo enviado contra a Msg 2 montada"
+    },
+    {
+      "from": "msg2-estado",
+      "to": "inbox",
+      "label": "reescrita do agente: aviso na Central com a conversa"
+    },
+    {
+      "from": "msg2-estado",
+      "to": "roteiro-do-produto",
+      "label": "Msg 2 que já saiu não é entregue nem reenviada (laço)"
     }
   ]
 }

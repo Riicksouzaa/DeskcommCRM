@@ -271,6 +271,10 @@ async function trabalhar(
     // escreve a mensagem na hora do envio.
     if (!opcoesDoPreparo(c.search).gerarPrevia) continue;
     const cfg = campaignConfigSchema.safeParse(c.config);
+    // Campanha com produto cadastrado: a Msg 1 é montada pelo sistema na hora (sem IA) e a
+    // prévia da tela é calculada na leitura. Gerar prévia de IA aqui gastaria crédito para um
+    // texto que o envio nunca usa — e uma empresa sem achado falharia a cada rodada.
+    if (cfg.success && cfg.data.product_snapshot) continue;
     let configDaPrevia: unknown = c.config;
     if (!cfg.success || !cfg.data.agent_id) {
       if (padrao === undefined) padrao = await configPadraoDaOrganizacao(db, org);

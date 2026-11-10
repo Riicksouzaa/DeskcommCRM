@@ -409,6 +409,87 @@ describe("enviarComSaidaConfiguravel", () => {
 });
 
 
+describe("every_message: o rodapé acompanha todo envio, sem contar nem reservar", () => {
+  const sent: ChannelSendResult = { kind: "sent", idempotencyKey: "k", messageId: "m" };
+  const opcoes = (query: unknown, seq = 1) => ({
+    db: { query } as never,
+    organizationId: "org-a",
+    conversationId: "conv-1",
+    via: "inbound_turn" as const,
+    mensagem: { jobId: "job-1", seq },
+    avisar: vi.fn(),
+  });
+  const modoEvery = (locale = "pt-BR") => ({ "as modo": [{ modo: "every_message", locale }] });
+
+  beforeEach(() => auditMock.mockClear());
+
+  it("N envios consecutivos levam o rodapé, sem contar, amarrar ou auditar", async () => {
+    const { query, sqls } = dbFalso(modoEvery());
+    for (let i = 1; i <= 5; i++) {
+      const enviar = vi.fn(async (_c: string) => sent);
+      await enviarComSaidaConfiguravel(opcoes(query, i), `msg ${i}`, enviar);
+      expect(enviar.mock.calls[0]![0]).toBe(`msg ${i}\n\nSe não quiser mais receber mensagens, responda PARAR.`);
+    }
+    expect(sqls.some(({ sql }) => sql.includes("automatic_sends"))).toBe(false);
+    expect(sqls.some(({ sql }) => sql.includes("exit_offer_message_id"))).toBe(false);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it("não duplica o rodapé se o corpo já o contém (reprocesso)", async () => {
+    const { query } = dbFalso(modoEvery());
+    const jaTem = "oi\n\nSe não quiser mais receber mensagens, responda PARAR.";
+    const enviar = vi.fn(async (_c: string) => sent);
+    await enviarComSaidaConfiguravel(opcoes(query), jaTem, enviar);
+    expect(enviar.mock.calls[0]![0]).toBe(jaTem);
+  });
+
+  it("envio que lança ou falha não deixa estado: nenhuma escrita no banco", async () => {
+    const { query, sqls } = dbFalso(modoEvery());
+    await expect(
+      enviarComSaidaConfiguravel(opcoes(query), "oi", async () => {
+        throw new Error("canal caiu");
+      }),
+    ).rejects.toThrow("canal caiu");
+    const falhou: ChannelSendResult = { kind: "failed" } as never;
+    await enviarComSaidaConfiguravel(opcoes(query), "oi", async () => falhou);
+    expect(sqls.every(({ sql }) => sql.trim().startsWith("select"))).toBe(true);
+    expect(sqls.every(({ sql, params }) => sql.includes("organization_id = $1") && params[0] === "org-a")).toBe(true);
+  });
+
+  it("a palavra do rodapé vem de PALAVRAS_DE_OPT_OUT, por idioma", async () => {
+    const { PALAVRAS_DE_OPT_OUT } = await import("@/lib/opt-out/deteccao");
+    for (const [locale, palavra] of [["pt-BR", "PARAR"], ["es-MX", "BAJA"], ["en-US", "STOP"]] as const) {
+      const { query } = dbFalso(modoEvery(locale));
+      const enviar = vi.fn(async (_c: string) => sent);
+      await enviarComSaidaConfiguravel(opcoes(query), "x", enviar);
+      const corpo = enviar.mock.calls[0]![0];
+      expect(corpo.trimEnd().endsWith(`${palavra}.`)).toBe(true);
+      expect(PALAVRAS_DE_OPT_OUT.has(palavra.toLowerCase())).toBe(true);
+    }
+  });
+
+  it("falha da consulta do modo: segue sem alterar o corpo", async () => {
+    const query = vi.fn(async () => {
+      throw new Error("banco caiu");
+    });
+    const enviar = vi.fn(async (_c: string) => sent);
+    await enviarComSaidaConfiguravel(opcoes(query), "texto puro", enviar);
+    expect(enviar.mock.calls[0]![0]).toBe("texto puro");
+  });
+
+  it("modos antigos intocados: first_message não altera o corpo nem conta", async () => {
+    const { query, sqls } = dbFalso({ "as modo": [{ modo: "first_message", locale: "pt-BR" }] });
+    const enviar = vi.fn(async (_c: string) => sent);
+    await enviarComSaidaConfiguravel(opcoes(query), "texto puro", enviar);
+    expect(enviar.mock.calls[0]![0]).toBe("texto puro");
+    expect(sqls.some(({ sql }) => sql.includes("update public.prospecting_candidates"))).toBe(true); // contagem tentada, como antes
+  });
+
+  it("o schema aceita every_message e o default segue first_message", () => {
+    expect(campaignConfigSchema.shape.exit_offer.parse("every_message")).toBe("every_message");
+  });
+});
+
 describe("modos aceitos: só a 1ª e a 2ª mensagem (doc 170)", () => {
   const id = "0c110000-0000-4000-8000-000000000001";
   const config = {

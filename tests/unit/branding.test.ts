@@ -1204,6 +1204,66 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     motivo:
       "assinatura de construtor (WordPress.com gratuito): URL final contendo o domínio vira o rótulo. Nunca chamada, nunca exibida.",
   },
+  "aiqfome.com": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "anota.ai": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "brendi.com.br": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "byfood.com.br": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "cardapioweb.com": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "deliverydireto.com.br": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "gynfood.com.br": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "ifood.com.br": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "instadelivery.com.br": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "neemo.com.br": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "saipos.com": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
+  "saipos.com.br": {
+    categoria: "RECONHECIMENTO",
+    motivo:
+      "plataforma de cardápio e pedido de terceiros reconhecida só pelo endereço do `website` (`PLATAFORMAS_DE_PEDIDO` em `lib/prospecting/site-classify.ts`): vira o achado `plataforma-de-pedidos`. Nunca chamada, nunca exibida (a tela mostra o nome da plataforma, não o host).",
+  },
 };
 
 describe("catraca de host de terceiro no código que embarca", () => {
@@ -1350,10 +1410,16 @@ describe("catraca de host de terceiro no código que embarca", () => {
         "o crescimento tem de ser uma decisão escrita aqui — não mais uma linha na lista.",
     ).toEqual([
       "000000000000-xxxxxxxx.apps.googleusercontent.com",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "aiqfome.com",
       "aistudio.google.com",
       // Decisão escrita (spec 24, auditoria de site): agregador de bio-links,
       // marca agregador sem fetch — nunca chamado, nunca exibido.
       "allmylinks.com",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "anota.ai",
       // Decisão escrita (spec 24, auditoria de site): assinatura de
       // reconhecimento comparada no HTML baixado — nunca chamada, nunca exibida.
       "api.whatsapp.com",
@@ -1366,9 +1432,18 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // Decisão escrita (spec 24, auditoria de site): agregador de bio-links,
       // marca agregador sem fetch — nunca chamado, nunca exibido.
       "beacons.ai",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "brendi.com.br",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "byfood.com.br",
       // Decisão escrita (spec 24, auditoria de site): assinatura de construtor
       // (Canva) — nunca chamada, nunca exibida.
       "canva.site",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "cardapioweb.com",
       // Decisão escrita (spec 24, auditoria de site): agregador de bio-links,
       // marca agregador sem fetch — nunca chamado, nunca exibido.
       "carrd.co",
@@ -1379,6 +1454,9 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // Decisão escrita: é o painel de chaves do Jev, o mesmo caso dos outros
       // CONSOLE — o link "Onde pegar a chave" da tela de Credenciais.
       "console.typesafe.ai",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "deliverydireto.com.br",
       "deskcomm.app",
       // Decisão escrita: painel de chaves do ElevenLabs, o mesmo caso dos outros
       // CONSOLE — o link "Onde pegar a chave" da tela de Credenciais.
@@ -1391,6 +1469,15 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // comparada no HTML para detectar endereço/mapa — nunca chamada por causa
       // desta regra, nunca exibida.
       "google.com",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "gynfood.com.br",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "ifood.com.br",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "instadelivery.com.br",
       // Decisão escrita (spec 24, auditoria de site): marca agregador e conta
       // como link social no raio-X — nunca chamada, nunca exibida (a tela mostra
       // o rótulo traduzido).
@@ -1420,6 +1507,9 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // que o texto aponte. O produto não fala com o host — quem abre o link é a pessoa
       // — e o endereço é do Google, não nosso. Crescimento escrito, como a regra pede.
       "myaccount.google.com",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "neemo.com.br",
       "partners.tiendanube.com",
       "platform.deepseek.com",
       "platform.openai.com",
@@ -1430,6 +1520,12 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // protocolo manda. Entrou aqui porque a régua nova do #914 passou a
       // enxergá-lo, e não porque o produto ganhou host novo.
       "s.whatsapp.net",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "saipos.com",
+      // Decisão escrita (prospecção, 2026-11-10): plataforma de cardápio e pedido de terceiros
+      // reconhecida só pelo endereço do `website` — nunca chamada, nunca exibida.
+      "saipos.com.br",
       // Decisão escrita (spec 24, auditoria de site): assinatura de construtor
       // (Google Sites) — nunca chamada, nunca exibida.
       "sites.google.com",

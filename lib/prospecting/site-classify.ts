@@ -185,6 +185,37 @@ export function ehAgregador(url: string | null | undefined): boolean {
   return DOMINIOS_AGREGADORES.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
+/**
+ * Plataformas de cardápio e pedido de TERCEIROS: o link que o Google mostra como
+ * "site" leva a uma página que a plataforma hospeda, não a um site da empresa.
+ * Medido em 2026-11-10 numa busca de 20 pizzarias de Goiânia: 9 de 20 estavam aqui,
+ * e o veredito de site dizia "em ordem" ou "não medido" — a plataforma barrando a
+ * VPS, não defeito de ninguém. Reconhecida SÓ pelo endereço: zero rede, nunca barrada.
+ * Só entra domínio visto em dado real (ou de plataforma de pedidos notória).
+ */
+export const PLATAFORMAS_DE_PEDIDO: ReadonlyArray<readonly [dominio: string, nome: string]> = [
+  ["saipos.com", "Saipos"],
+  ["saipos.com.br", "Saipos"],
+  ["anota.ai", "Anota AI"],
+  ["instadelivery.com.br", "Instadelivery"],
+  ["cardapioweb.com", "Cardápio Web"],
+  ["brendi.com.br", "Brendi"],
+  ["deliverydireto.com.br", "Delivery Direto"],
+  ["neemo.com.br", "Neemo"],
+  ["byfood.com.br", "ByFood"],
+  ["gynfood.com.br", "Gynfood"],
+  ["ifood.com.br", "iFood"],
+  ["aiqfome.com", "aiqfome"],
+];
+
+/** O nome da plataforma de pedidos de terceiros do `website`, ou `null`. Barato: sem rede. */
+export function plataformaDePedidos(url: string | null | undefined): string | null {
+  const host = hostDeSite(url);
+  if (!host) return null;
+  const achada = PLATAFORMAS_DE_PEDIDO.find(([d]) => host === d || host.endsWith(`.${d}`));
+  return achada ? achada[1] : null;
+}
+
 /** True quando não há o que buscar (nulo, vazio, só espaço). */
 export function ehSemSite(url: string | null | undefined): boolean {
   return !url || url.trim() === "";

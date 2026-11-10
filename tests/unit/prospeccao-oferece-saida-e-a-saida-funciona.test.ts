@@ -90,7 +90,11 @@ describe("o caminho de envio usa o rodapé — e não o texto cru do modelo", ()
     // de uma bolha posterior ter dado certo (revisão do PR #2680). A cerca
     // procura as quatro pernas, não só a chamada.
     const worker = fs.readFileSync(path.join(RAIZ, "lib/prospecting/worker.ts"), "utf8");
-    expect(worker).toMatch(/splitForSend\(\s*generated\.texto/);
+    // `textoDaAbordagem` é o texto da IA (`generated.texto`) OU, na campanha com produto, a Msg 1
+    // montada pelo sistema (que sai em UMA bolha, sem `splitForSend`). Nos dois casos o que se
+    // envia nunca é o rodapé solto: a 1ª bolha passa por `comSaida` mais abaixo.
+    expect(worker).toMatch(/splitForSend\(\s*textoDaAbordagem/);
+    expect(worker).toMatch(/textoDaAbordagem = generated\.texto/);
     // A saída continua entrando na 1ª bolha — mas CONDICIONADA à configuração da
     // campanha (`exit_offer`, migration 0705): só no modo `first_message` ela é
     // oferecida já na primeira mensagem. No modo `second_message` quem reserva e
@@ -99,7 +103,10 @@ describe("o caminho de envio usa o rodapé — e não o texto cru do modelo", ()
     expect(
       worker,
       "o envio precisa mandar comSaida(...) na primeira bolha, e só quando exit_offer === \"first_message\"",
-    ).toMatch(/cfg\.exit_offer\s*===\s*"first_message"\)\s*baloes\[0\]\s*=\s*comSaida\(/);
+    ).toMatch(/if \(rodapeJaNaPrimeira\)\s*baloes\[0\]\s*=\s*comSaida\(/);
+    expect(worker).toMatch(
+      /rodapeJaNaPrimeira\s*=\s*cfg\.exit_offer\s*===\s*"first_message"\s*\|\|\s*cfg\.exit_offer\s*===\s*"every_message"/,
+    );
     expect(worker).toMatch(/body:\s*baloes\[i\]/);
     expect(
       worker.includes("body: generated.texto"),

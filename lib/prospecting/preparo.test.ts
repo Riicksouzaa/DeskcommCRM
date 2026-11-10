@@ -605,3 +605,33 @@ describe("Passo 0 — o WhatsApp vem antes do site e da prévia (whatsapp.ts)", 
     expect(r.previas).toBe(1);
   });
 });
+
+describe("campanha COM produto cadastrado (retrato)", () => {
+  const RETRATO = {
+    product_id: "66666666-6666-4666-8666-666666666666",
+    produto_atualizado_em: "2026-11-10T10:00:00.000Z",
+    nome: "Manero",
+    resumo: "Cardápio digital para restaurantes.",
+    assina: "Dani",
+    solucoes: { "sem-site": "o cardápio vira uma página própria" },
+    prova: null,
+    link_demo: null,
+    proibicoes: [],
+  };
+
+  it("NÃO gera prévia de IA (a Msg 1 é montada pelo sistema), mas a outra campanha da rodada segue", async () => {
+    const { pool } = montar({
+      campanhas: [
+        {
+          id: C1,
+          config: { ...CONFIG, exit_offer: "every_message", product_id: RETRATO.product_id, product_snapshot: RETRATO },
+          search: BUSCA_NOVA,
+        },
+        { id: C2, config: CONFIG, search: BUSCA_NOVA },
+      ],
+      candidatos: { [C1]: [cand("com-produto")], [C2]: [cand("sem-produto")] },
+    });
+    await rodar(pool);
+    expect(idsGerados()).toEqual(["sem-produto"]);
+  });
+});

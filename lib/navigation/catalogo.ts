@@ -168,6 +168,16 @@ export const NAV_CATALOG = [
     minRole: "admin",
     section: "O dia a dia da venda",
   },
+  {
+    // Fora do menu lateral pelo mesmo motivo da Prospecção (menu no limite); a porta é o hub do CRM e o ⌘K.
+    href: "/app/prospecting/produtos",
+    label: "Produtos da prospecção",
+    description: "Cadastre o que você vende e como resolve cada problema que a auditoria encontra.",
+    icon: "Funnel",
+    group: "crm",
+    minRole: "viewer",
+    section: "O dia a dia da venda",
+  },
   // ---- Atendimento — onde o operador passa o dia ----
   {
     href: "/app/inbox",

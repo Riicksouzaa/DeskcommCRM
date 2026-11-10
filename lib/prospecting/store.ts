@@ -38,6 +38,9 @@ import { aplicarLinks } from "@/lib/leads/links-de-contato";
 import { pedidoDaProspeccao } from "./pedido-da-prospeccao";
 import { motivoSemWhatsapp } from "./whatsapp";
 import { idiomaDaOrganizacao } from "./idioma";
+import { avaliarCandidatoParaProduto } from "./produto/achados-da-empresa";
+import { resolverProdutoDaAtivacao } from "./produto/ativacao";
+import { produtoDoRoteiro } from "./produto/snapshot";
 import {
   provedorDaOrganizacao,
   provedorExigeCredencialDaOrganizacao,
@@ -958,8 +961,12 @@ export async function enfileirarCandidatos(
   c: Pick<Campaign, "id" | "name">,
   config: CampaignConfig,
   candidates: Candidate[],
-) {
+): Promise<{ sem_achado: number }> {
   const id = c.id;
+  // Campanha com produto: a empresa só entra na fila se tiver 1 achado citável COM solução (D2 = A).
+  const produto = config.product_snapshot ? produtoDoRoteiro(config.product_snapshot) : null;
+  const agoraIso = new Date().toISOString();
+  let semAchado = 0;
   for (const p of candidates) {
     // Quem saiu da seleção por NÃO TER WHATSAPP leva esse motivo, e não "não
     // selecionada pelo operador": quem tirou foi o produto, e a tela não a devolve.
@@ -979,6 +986,20 @@ export async function enfileirarCandidatos(
       );
       continue;
     }
+    if (produto) {
+      // Inelegível NÃO entra na fila e NÃO ganha contato/negócio/conversa: "Não abordado" com o
+      // motivo (o campo `error` é o que a tela de candidatos já mostra). Pendente (auditoria do
+      // site em curso) entra: o envio a reavalia quando a vez dela chegar (`proximoDaFilaDoProduto`).
+      const veredito = avaliarCandidatoParaProduto(p.data, produto, agoraIso);
+      if (veredito.estado === "inelegivel") {
+        await db.query(
+          "update prospecting_candidates set status='skipped',error=$3,updated_at=now() where organization_id=$1 and id=$2",
+          [org, p.id, veredito.motivo],
+        );
+        semAchado++;
+        continue;
+      }
+    }
     if (config.funnel_entry === "on_send") {
       // O contato, o negócio e a conversa NASCEM NO ENVIO (`prepararCandidatoNoEnvio`):
       // aqui a empresa só entra na fila. O funil mostra quem foi abordado, e desmarcar
@@ -991,6 +1012,7 @@ export async function enfileirarCandidatos(
     }
     await criarPegadaDoCandidato(db, admin, org, c, config, p, triagem.contatoDaCampanha);
   }
+  return { sem_achado: semAchado };
 }
 /**
  * O NÚMERO DE UMA CAMPANHA e a TRAVA "uma campanha running por número".
@@ -1009,7 +1031,11 @@ export async function activateCampaign(
   input: CampaignConfig,
 ) {
   return withProspectingLock(pool, org, async (db) => {
-    const config = await validateConfig(db, org, input);
+    // O RETRATO DO PRODUTO É DO SERVIDOR: o que o cliente mandar em `product_snapshot` é descartado
+    // aqui, e o retrato é montado abaixo a partir do produto desta organização.
+    const { product_snapshot: _descartado, ...entrada } = input;
+    void _descartado;
+    let config = await validateConfig(db, org, entrada);
     const c = (
       await db.query<Campaign>(
         "select * from prospecting_campaigns where organization_id=$1 and id=$2",
@@ -1017,6 +1043,24 @@ export async function activateCampaign(
       )
     ).rows[0];
     if (!c) throw new ProspectingError("Campanha não encontrada.", 404);
+    if (config.product_id) {
+      const anterior = c.config ? campaignConfigSchema.safeParse(c.config) : null;
+      const snapshot = await resolverProdutoDaAtivacao(
+        db,
+        org,
+        config.product_id,
+        config.agent_id,
+        anterior?.success && anterior.data.product_id === config.product_id
+          ? (anterior.data.product_snapshot ?? null)
+          : null,
+      );
+      // A saída acompanha TODA mensagem da campanha com produto (spec §4.4): o operador não escolhe.
+      config = campaignConfigSchema.parse({
+        ...config,
+        exit_offer: "every_message",
+        product_snapshot: snapshot,
+      });
+    }
     if (c.status !== "draft" || c.search_status !== "succeeded")
       throw new ProspectingError(
         "Aguarde a busca terminar; uma campanha já iniciada deve ser retomada.",
@@ -1050,7 +1094,7 @@ export async function activateCampaign(
         [org, id],
       )
     ).rows;
-    await enfileirarCandidatos(db, admin, org, c, config, candidates);
+    const { sem_achado } = await enfileirarCandidatos(db, admin, org, c, config, candidates);
     try {
       await db.query(
         "update prospecting_campaigns set config=$3,channel_session_id=$4,status='running',next_send_at=now()+interval '1 minute',error=null,channel_down_since=null,updated_at=now() where organization_id=$1 and id=$2",
@@ -1068,7 +1112,11 @@ export async function activateCampaign(
       }
       throw error;
     }
-    return { started: true };
+    return {
+      started: true,
+      // Só campanha com produto: quantas empresas ficaram de fora por não terem achado com solução.
+      ...(config.product_id ? { product_id: config.product_id, sem_achado } : {}),
+    };
   });
 }
 

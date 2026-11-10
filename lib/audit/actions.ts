@@ -1509,6 +1509,21 @@ export const AUDIT_ACTIONS = [
   // booleano: o CONTEÚDO das manifestações nunca entra na trilha, que é
   // append-only e a cascata de LGPD não alcança.
   "settings.ouvidoria_updated",
+  // O PRODUTO CADASTRADO da prospecção (spec 2026-11-10): o que a campanha vende.
+  // Criar, editar e arquivar são atos distintos — arquivar tira o produto da
+  // lista sem apagar o retrato que campanhas já ativadas guardaram. Metadata:
+  // ids, nome e quais campos mudaram; o TEXTO do produto (resumo, prova,
+  // soluções) nunca entra na trilha append-only.
+  "prospecting.product_created",
+  "prospecting.product_updated",
+  "prospecting.product_archived",
+  // O ROTEIRO "achado primeiro" da campanha com produto (spec 2026-11-10 §4/§6).
+  // `message_blocked`: o texto montado foi BARRADO antes do envio (proibição,
+  // emoji, rodapé) — o candidato falha e nada sai. `msg2_checked`: a conferência
+  // pós-turno viu a Msg 2 sair (metadata `literal` true/false). Metadata só com
+  // ids e motivos; o TEXTO da mensagem nunca entra na trilha append-only.
+  "prospecting.message_blocked",
+  "prospecting.msg2_checked",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

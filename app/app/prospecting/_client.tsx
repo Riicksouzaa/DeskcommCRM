@@ -36,6 +36,10 @@ import {
 import { precisaDeRede, siteEfetivo } from "@/lib/prospecting/site-efetivo";
 import { opcoesDoPreparo } from "@/lib/prospecting/opcoes-do-preparo";
 import { previaPorGerar, previaValida } from "@/lib/prospecting/previa";
+import type { ProdutoDaProspeccao } from "@/lib/prospecting/produto/schema";
+import { construirSnapshot, type ProdutoSnapshot } from "@/lib/prospecting/produto/snapshot";
+import { montarRoteiroDoCandidato } from "@/lib/prospecting/produto/roteiro-do-candidato";
+import { PREFIXO_SEM_ACHADO } from "@/lib/prospecting/produto/achados-da-empresa";
 
 /** Uma linha que a importação recusou — o número é o da planilha (1 = cabeçalho). */
 type RecusadaDaLinha = { linha: number; motivo: string; telefone?: string | null; detalhe?: string };
@@ -142,6 +146,8 @@ const TRECHO_DA_PREVIA = 140;
  */
 function campanhaGeraPrevia(c: Campaign, previaPadrao: boolean): boolean {
   if (!opcoesDoPreparo(c.search).gerarPrevia) return false;
+  // Campanha com produto: a Msg 1 é montada pelo sistema (sem IA); não há prévia de IA a gerar.
+  if (c.config?.product_snapshot) return false;
   return campanhaPodeGerarPrevia(c, previaPadrao);
 }
 
@@ -246,6 +252,49 @@ function PreviaNaLinha({
   if (previaPorGerar({ data: candidato.data, status, selected: candidato.selected }, agoraIso))
     return <p className="mt-2 text-xs text-muted-foreground">{t("Gerando prévia…")}</p>;
   return null;
+}
+
+/**
+ * A mensagem que ESTA empresa vai receber na campanha com produto — a MESMA função
+ * (`montarRoteiroDoCandidato`) que o envio usa: o que a tela mostra é o que o tick manda.
+ * Elegível: o trecho da Msg 1; inelegível: o motivo; pendente: espera a auditoria.
+ */
+function RoteiroNaLinha({
+  candidato,
+  snapshot,
+  locale,
+  agoraIso,
+}: {
+  candidato: Candidate;
+  snapshot: ProdutoSnapshot;
+  locale: string | null;
+  agoraIso: string;
+}) {
+  const t = useT();
+  if (candidato.selected === false) return null;
+  // Quem já foi abordado/pulado mostra o desfecho na coluna de status; aqui só o que ainda vai sair.
+  if (candidato.status && !["new", "queued"].includes(candidato.status)) return null;
+  const r = montarRoteiroDoCandidato({ data: candidato.data, snapshot, locale, agoraIso });
+  if (r.estado === "pendente")
+    return (
+      <p className="mt-2 text-xs text-muted-foreground">
+        {t("Aguardando a auditoria do site para montar a mensagem.")}
+      </p>
+    );
+  if (r.estado === "inelegivel") return <p className="mt-2 text-xs font-medium">{t(r.motivo)}</p>;
+  if (r.barrada.length > 0)
+    return (
+      <p className="mt-2 text-xs font-medium" role="alert">
+        {t("Mensagem barrada antes do envio:")} {r.barrada.join(" ")}
+      </p>
+    );
+  const trecho =
+    r.msg1.length > TRECHO_DA_PREVIA ? `${r.msg1.slice(0, TRECHO_DA_PREVIA).trimEnd()}…` : r.msg1;
+  return (
+    <p className="mt-2 text-xs text-muted-foreground" title={`${r.msg1}\n\n${r.msg2}`}>
+      {trecho}
+    </p>
+  );
 }
 
 export function ProspectingClient() {
@@ -365,6 +414,30 @@ export function ProspectingClient() {
       [...(data?.agents ?? []), ...createdAgents].map((agent) => [agent.id, agent]),
     ).values(),
   ];
+  // O PRODUTO que a campanha vende (lista da organização). Vazia, a tela manda cadastrar.
+  const produtosQuery = useQuery({
+    queryKey: ["prospecting-products"],
+    queryFn: async () =>
+      (await apiClient.get<{ data: ProdutoDaProspeccao[] }>("/api/v1/prospecting/products")).data,
+    // Só quando o seletor existe e é editável: campanha congelada usa o retrato dela, sem lista.
+    enabled: !configCompleta && (manual || !!config.agent_id),
+  });
+  // Defensivo: a lista só vale se vier como lista (resposta inesperada = nenhum produto, nunca tela quebrada).
+  const produtos = Array.isArray(produtosQuery.data) ? produtosQuery.data : [];
+  const temProduto = !!config.product_id;
+  const produtoEscolhido = config.product_id
+    ? produtos.find((p) => p.id === config.product_id)
+    : undefined;
+  // A mesma regra da ativação: a assinatura é a do produto, ou o nome do agente da campanha.
+  const assinaDoProduto = (
+    produtoEscolhido?.assina?.trim() ||
+    agents.find((a) => a.id === config.agent_id)?.name ||
+    ""
+  ).slice(0, 80);
+  // Campanha ativa: o retrato gravado. Rascunho: o retrato que a ativação gravaria agora.
+  const snapshotDaTela: ProdutoSnapshot | null =
+    config.product_snapshot ??
+    (produtoEscolhido && assinaDoProduto ? construirSnapshot(produtoEscolhido, assinaDoProduto) : null);
   function setConfig(update: CampaignConfig | ((previous: CampaignConfig) => CampaignConfig)) {
     if (!campaign || configCompleta) return;
     setCampaignDrafts((drafts) => ({
@@ -648,6 +721,8 @@ export function ProspectingClient() {
         action: "prever_abordagem",
         id: campaign.id,
         candidate_id: candidateId,
+        // Rascunho com produto escolhido: o servidor monta o retrato do produto desta organização.
+        ...(config.product_id ? { product_id: config.product_id } : {}),
       });
       return res.data;
     } finally {
@@ -694,9 +769,34 @@ export function ProspectingClient() {
   // O andamento do preparo automático, só sobre as marcadas (a desmarcada não será
   // abordada, então não entra em nenhuma das duas contas). Mesmas funções puras
   // que o servidor e o recarregamento usam.
-  const temAgenteNaCampanha = !!campaign && campanhaGeraPrevia(campaign, data?.previa_padrao === true);
+  const temAgenteNaCampanha =
+    !!campaign && !temProduto && campanhaGeraPrevia(campaign, data?.previa_padrao === true);
   const podeGerarPreviaAMao = !!campaign && campanhaPodeGerarPrevia(campaign, data?.previa_padrao === true);
   const marcadas = candidates.filter((c) => c.selected !== false);
+  // Campanha com produto: quem tem achado citável com solução (D2 = A), quem não tem (com o motivo
+  // na linha) e quem espera a auditoria. A conta é a do envio: `montarRoteiroDoCandidato`.
+  const contagemDoProduto = snapshotDaTela
+    ? marcadas.reduce(
+        (acc, c) => {
+          if (c.status === "skipped" && c.error?.startsWith(PREFIXO_SEM_ACHADO)) {
+            acc.semAchado++;
+            return acc;
+          }
+          if (c.status && !["new", "queued"].includes(c.status)) return acc;
+          const r = montarRoteiroDoCandidato({
+            data: c.data,
+            snapshot: snapshotDaTela,
+            locale: data?.organization_locale ?? null,
+            agoraIso: agora,
+          });
+          if (r.estado === "pendente") acc.aguardando++;
+          else if (r.estado === "inelegivel") acc.semAchado++;
+          else acc.comAchado++;
+          return acc;
+        },
+        { comAchado: 0, semAchado: 0, aguardando: 0 },
+      )
+    : null;
   const opcoes = opcoesDoPreparo(campaign?.search);
   const sitesVerificados = marcadas.length - pendentesDeSite;
   // WhatsApp (`lib/prospecting/whatsapp.ts`): sobre TODAS as que têm telefone — quem não
@@ -1654,6 +1754,54 @@ export function ProspectingClient() {
                                 <legend className="text-sm font-medium">
                                   {t("O que esta campanha vende")}
                                 </legend>
+                                <div>
+                                  <Label htmlFor="prospecting-product">{t("Produto")}</Label>
+                                  <select
+                                    id="prospecting-product"
+                                    className={`${selectClass} mt-1`}
+                                    value={config.product_id ?? ""}
+                                    disabled={busy}
+                                    onChange={(e) => {
+                                      const id = e.target.value;
+                                      // Com produto a saída acompanha TODA mensagem (o servidor força
+                                      // o mesmo na ativação); sem produto volta ao padrão de sempre.
+                                      setConfig((c) =>
+                                        id
+                                          ? { ...c, product_id: id, exit_offer: "every_message" }
+                                          : { ...c, product_id: undefined, exit_offer: "first_message" },
+                                      );
+                                    }}
+                                  >
+                                    <option value="">{t("Nenhum (usar as ofertas abaixo)")}</option>
+                                    {produtos.map((p) => (
+                                      <option key={p.id} value={p.id}>
+                                        {p.nome}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {produtos.length === 0 && !produtosQuery.isLoading && (
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {t("Nenhum produto cadastrado.")}{" "}
+                                      <Link className="underline" href="/app/prospecting/produtos">
+                                        {t("Cadastrar produto")}
+                                      </Link>
+                                    </p>
+                                  )}
+                                  {temProduto && (
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {t(
+                                        "A mensagem sai montada pelo sistema, com um achado da empresa e a solução do produto. As ofertas abaixo não valem e a saída para parar de receber acompanha toda mensagem.",
+                                      )}
+                                    </p>
+                                  )}
+                                  {temProduto && !snapshotDaTela && !produtosQuery.isLoading && (
+                                    <p className="mt-1 text-xs font-medium" role="alert">
+                                      {t(
+                                        "O produto precisa de um nome em Assina, ou a campanha de um agente com nome, para se apresentar na mensagem.",
+                                      )}
+                                    </p>
+                                  )}
+                                </div>
                                 <p className="text-xs text-muted-foreground">
                                   {t(
                                     "A auditoria do site escolhe o melhor argumento por empresa, nesta ordem.",
@@ -1667,7 +1815,7 @@ export function ProspectingClient() {
                                       type="checkbox"
                                       className="mt-1"
                                       checked={(config.ofertas ?? ["site"]).includes(valor)}
-                                      disabled={busy}
+                                      disabled={busy || temProduto}
                                       onChange={() => {
                                         const atuais = config.ofertas ?? ["site"];
                                         const ligadas = atuais.includes(valor)
@@ -1760,6 +1908,7 @@ export function ProspectingClient() {
                                 type="radio"
                                 name="prospecting-exit-offer"
                                 checked={(config.exit_offer ?? "first_message") === "first_message"}
+                                disabled={temProduto}
                                 onChange={() => update("exit_offer", "first_message")}
                                 className="mt-1"
                               />
@@ -1777,6 +1926,7 @@ export function ProspectingClient() {
                                 type="radio"
                                 name="prospecting-exit-offer"
                                 checked={(config.exit_offer ?? "first_message") === "second_message"}
+                                disabled={temProduto}
                                 onChange={() => update("exit_offer", "second_message")}
                                 className="mt-1"
                               />
@@ -1789,6 +1939,12 @@ export function ProspectingClient() {
                                 </span>
                               </span>
                             </label>
+                            {temProduto && (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {t("Com produto, a saída acompanha toda mensagem:")}{" "}
+                                {rodapeDeSaida(data?.organization_locale)}
+                              </p>
+                            )}
                             {config.exit_offer === "second_message" && (
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {t(
@@ -1896,6 +2052,20 @@ export function ProspectingClient() {
                             <>
                               {" · "}
                               {t("Prévias:")} {previasProntas} {t("de")} {marcadas.length}
+                            </>
+                          )}
+                          {contagemDoProduto && (
+                            <>
+                              {" · "}
+                              {t("Com achado para o produto:")} {contagemDoProduto.comAchado}
+                              {" · "}
+                              {t("Sem achado (não serão abordadas):")} {contagemDoProduto.semAchado}
+                              {contagemDoProduto.aguardando > 0 && (
+                                <>
+                                  {" · "}
+                                  {t("Aguardando a auditoria:")} {contagemDoProduto.aguardando}
+                                </>
+                              )}
                             </>
                           )}
                           {whatsappVerificados > 0 && (
@@ -2179,12 +2349,22 @@ export function ProspectingClient() {
                                 onReanalisar={reanalisarSite}
                                 onPrevia={preverAbordagem}
                               />
+                              {snapshotDaTela && (
+                                <RoteiroNaLinha
+                                  candidato={c}
+                                  snapshot={snapshotDaTela}
+                                  locale={data?.organization_locale ?? null}
+                                  agoraIso={agora}
+                                />
+                              )}
+                              {!snapshotDaTela && (
                               <PreviaNaLinha
                                 candidato={c}
                                 temAgente={temAgenteNaCampanha}
                                 previaDesligada={!opcoes.gerarPrevia}
                                 agoraIso={agora}
                               />
+                              )}
                             </td>
                             <td className="p-4 align-top">
                               {c.conversation_id && (

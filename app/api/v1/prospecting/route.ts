@@ -16,6 +16,7 @@ import { provedorExigeCredencialDaOrganizacao } from "@/lib/prospecting/provedor
 import { auditarSite } from "@/lib/prospecting/site-fetch";
 import { gravarPrevia } from "@/lib/prospecting/previa";
 import { gerarPreviaDoCandidato } from "@/lib/prospecting/previa-gerar";
+import { resolverProdutoDaAtivacao } from "@/lib/prospecting/produto/ativacao";
 import { enriquecerSitesPendentes } from "@/lib/prospecting/site-enrich";
 import { lerPersonalizacao } from "@/lib/prospecting/personalizar";
 import {
@@ -215,9 +216,18 @@ export async function POST(req: NextRequest) {
       result = { configured: true };
     } else if (body.action === "search")
       result = await createSearch(pool, admin, org, body.request_id, body.search);
-    else if (body.action === "start")
-      result = await activateCampaign(pool, admin, org, body.id, body.config);
-    else if (body.action === "pause") {
+    else if (body.action === "start") {
+      const iniciada = await activateCampaign(pool, admin, org, body.id, body.config);
+      result = iniciada;
+      // Campanha com produto: a trilha diz QUAL produto e quantas empresas ficaram de fora por
+      // não terem achado com solução (ids e contagens; o texto do produto nunca entra).
+      if ("product_id" in iniciada)
+        auditMetadata = {
+          operation: body.action,
+          product_id: iniciada.product_id,
+          skipped_no_finding: iniciada.sem_achado,
+        };
+    } else if (body.action === "pause") {
       // Pause does not wait for the worker lock; the delivery guard sees it before sending.
       const changed = await pool.query(
         "update prospecting_campaigns set status='paused',updated_at=now() where organization_id=$1 and id=$2 and status='running' returning id",
@@ -334,10 +344,28 @@ export async function POST(req: NextRequest) {
         configDaCampanha.success && configDaCampanha.data.agent_id
           ? null
           : await configPadraoDaOrganizacao(pool, org);
+      // PRÉVIA COM PRODUTO EM RASCUNHO: a campanha ainda não tem retrato (ele nasce na ativação),
+      // mas o operador já escolheu o produto. O retrato é montado AGORA, do produto DESTA
+      // organização (a mesma recusa para "não existe", "é de outra org" e "arquivado"), e não
+      // é gravado: é só o que a ativação gravaria.
+      const configParaPrevia = padrao ? padrao.config : linha.config;
+      const agenteDaPrevia = campaignConfigSchema.safeParse(configParaPrevia);
+      const snapshotDeRascunho =
+        body.product_id && !(agenteDaPrevia.success && agenteDaPrevia.data.product_snapshot)
+          ? await resolverProdutoDaAtivacao(
+              pool,
+              org,
+              body.product_id,
+              agenteDaPrevia.success ? agenteDaPrevia.data.agent_id : "",
+              null,
+              false,
+            )
+          : null;
       const gerada = await gerarPreviaDoCandidato(
         pool,
         org,
         padrao ? { ...linha, config: padrao.config } : linha,
+        { snapshotDeRascunho },
       );
       if (!gerada.ok) {
         if (gerada.motivo === "auditoria_pendente")
@@ -351,6 +379,8 @@ export async function POST(req: NextRequest) {
         // configurada: 422 que a tela entende, não um ZodError (500).
         if (gerada.motivo === "sem_agente")
           throw new ProspectingError("Escolha o agente da campanha para pré-visualizar.", 422);
+        if (gerada.motivo === "sem_achado" || gerada.motivo === "texto_barrado")
+          throw new ProspectingError(gerada.detalhe ?? "Esta empresa não tem mensagem para o produto.", 422);
         throw new ProspectingError(`A IA não produziu uma abordagem: ${gerada.detalhe}.`, 422);
       }
       const { previa, estrategia, score } = gerada;
@@ -359,6 +389,8 @@ export async function POST(req: NextRequest) {
       // (`salva:false`) — perder a prévia por erro de escrita seria pior do que
       // não guardá-la. O log NUNCA carrega o TEXTO.
       let salva = false;
+      // Campanha com produto: a prévia é calculada na leitura (sem IA) e nada é guardado.
+      if (gerada.mensagem2 === undefined)
       try {
         await gravarPrevia(pool, {
           organizationId: org,
@@ -385,7 +417,14 @@ export async function POST(req: NextRequest) {
           message: error instanceof Error ? error.message : "erro desconhecido",
         });
       }
-      result = { mensagem: gerada.texto, estrategia, score, salva };
+      result = {
+        mensagem: gerada.texto,
+        // Só campanha com produto: a Msg 2 que o agente enviará literal se a pessoa aceitar.
+        ...(gerada.mensagem2 !== undefined ? { mensagem_2: gerada.mensagem2 } : {}),
+        estrategia,
+        score,
+        salva,
+      };
     } else if (body.action === "verificar_sites") {
       // "Verificar agora" (spec 24): ADIANTA o que o preparo automático do tick
       // faria sozinho (`prepararCandidatos`) — o MESMO enriquecimento, com teto de

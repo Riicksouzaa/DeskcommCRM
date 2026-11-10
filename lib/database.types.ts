@@ -12961,6 +12961,8 @@ export type Database = {
           id: string;
           lead_id: string | null;
           message_id: string;
+          msg2_literal: boolean | null;
+          msg2_sent_at: string | null;
           organization_id: string;
           phone: string | null;
           place_id: string;
@@ -12987,6 +12989,8 @@ export type Database = {
           id?: string;
           lead_id?: string | null;
           message_id?: string;
+          msg2_literal?: boolean | null;
+          msg2_sent_at?: string | null;
           organization_id: string;
           phone?: string | null;
           place_id: string;
@@ -13012,6 +13016,8 @@ export type Database = {
           id?: string;
           lead_id?: string | null;
           message_id?: string;
+          msg2_literal?: boolean | null;
+          msg2_sent_at?: string | null;
           organization_id?: string;
           phone?: string | null;
           place_id?: string;
@@ -13061,6 +13067,66 @@ export type Database = {
           },
           {
             foreignKeyName: "prospecting_candidates_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      prospecting_products: {
+        Row: {
+          archived_at: string | null;
+          assina: string | null;
+          categoria: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          link_demo: string | null;
+          nome: string;
+          organization_id: string;
+          proibicoes: string[];
+          prova: string | null;
+          resumo: string;
+          solucoes: Json;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          archived_at?: string | null;
+          assina?: string | null;
+          categoria: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          link_demo?: string | null;
+          nome: string;
+          organization_id: string;
+          proibicoes?: string[];
+          prova?: string | null;
+          resumo: string;
+          solucoes?: Json;
+          updated_at?: string;
+        };
+        Update: {
+          archived_at?: string | null;
+          assina?: string | null;
+          categoria?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          link_demo?: string | null;
+          nome?: string;
+          organization_id?: string;
+          proibicoes?: string[];
+          prova?: string | null;
+          resumo?: string;
+          solucoes?: Json;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "prospecting_products_organization_id_fkey";
             columns: ["organization_id"];
             isOneToOne: false;
             referencedRelation: "organizations";

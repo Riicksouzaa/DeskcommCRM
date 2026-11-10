@@ -34,6 +34,8 @@ import {
 import { previaDoAgente } from "./previa";
 import { blocoVozVendedor, personalizacaoDaOrganizacao } from "./personalizar";
 import { campaignConfigSchema, type OfertaDaCampanha } from "./schema";
+import { proximoDaFilaDoProduto, registrarMensagemBarrada } from "./produto/fila";
+import { montarRoteiroDoCandidato } from "./produto/roteiro-do-candidato";
 import { prepararCandidatos } from "./preparo";
 import { provedoresQueConferemNumero } from "@/lib/channels";
 import { moduloLigado } from "@/lib/instalacao/modulos";
@@ -236,18 +238,82 @@ export async function sendNextCandidate(
       return;
     }
   }
-  const queued = (
-    await db.query<Candidate>(
-      "select * from prospecting_candidates where organization_id=$1 and campaign_id=$2 and status='queued' order by created_at,id limit 1",
-      [c.organization_id, c.id],
-    )
-  ).rows[0];
+  // CAMPANHA COM PRODUTO CADASTRADO: o retrato gravado na ativação (`product_snapshot`) é a única
+  // fonte — o worker nunca lê o produto vivo. A fila só entrega quem tem achado citável com solução
+  // (D2 = A); quem espera a auditoria fica na fila, e quem não tem achado vai a "Não abordado".
+  const snapshot = cfg.product_snapshot ?? null;
+  let semNadaAgora = false;
+  const queued = snapshot
+    ? await (async () => {
+        const proximo = await proximoDaFilaDoProduto(
+          db,
+          c.organization_id,
+          c.id,
+          snapshot,
+          new Date().toISOString(),
+        );
+        semNadaAgora = proximo.candidato === null && proximo.haPendentes;
+        return proximo.candidato ?? undefined;
+      })()
+    : (
+        await db.query<Candidate>(
+          "select * from prospecting_candidates where organization_id=$1 and campaign_id=$2 and status='queued' order by created_at,id limit 1",
+          [c.organization_id, c.id],
+        )
+      ).rows[0];
+  // Só há empresas esperando a auditoria do site: a campanha segue "Ativa" e tenta no próximo tick.
+  if (!queued && semNadaAgora) return;
   if (!queued) {
     await db.query(
       "update prospecting_campaigns set status='completed',updated_at=now() where organization_id=$1 and id=$2 and status='running'",
       [c.organization_id, c.id],
     );
     return;
+  }
+  // O idioma da instalação decide a PALAVRA de saída. Uma consulta por envio, no
+  // mesmo caminho que já faz várias — e o envio é limitado a 1 por vez pelo
+  // ritmo anti-banimento, então não há volume aqui para otimizar.
+  const locale =
+    (
+      await db.query<{ locale: string | null }>(
+        "select locale from organizations where id=$1",
+        [c.organization_id],
+      )
+    ).rows[0]?.locale ?? null;
+  // O ROTEIRO "achado primeiro" é montado e VALIDADO aqui — ANTES do claim (`sending`,
+  // `attempted_at`, `recordSend`) e antes de `prepararCandidatoNoEnvio`. Texto barrado não pode
+  // queimar cota, intervalo nem criar contato de quem não será abordado. A IA NÃO escreve esta
+  // mensagem: é a mesma função (`montarRoteiroDoCandidato`) que a prévia e o contexto da Msg 2 usam.
+  let msg1DoProduto: string | null = null;
+  if (snapshot) {
+    const roteiro = montarRoteiroDoCandidato({
+      data: queued.data,
+      snapshot,
+      locale,
+      agoraIso: new Date().toISOString(),
+    });
+    if (roteiro.estado !== "pronto") {
+      // Entre a escolha da fila e aqui a auditoria mudou: volta à fila / sai dela, sem tentativa.
+      if (roteiro.estado === "inelegivel")
+        await db.query(
+          "update prospecting_candidates set status='skipped',error=$3,updated_at=now() where organization_id=$1 and id=$2 and status='queued'",
+          [c.organization_id, queued.id, roteiro.motivo],
+        );
+      return;
+    }
+    if (roteiro.barrada.length > 0) {
+      await registrarMensagemBarrada(db, {
+        org: c.organization_id,
+        campaignId: c.id,
+        campaignName: c.name,
+        candidateId: queued.id,
+        conversationId: queued.conversation_id,
+        motivos: roteiro.barrada,
+      });
+      // Falha DESTA empresa (o defeito do produto já foi recusado na ativação): a fila segue.
+      return;
+    }
+    msg1DoProduto = roteiro.msg1;
   }
   // A checagem do canal olha o telefone desta empresa (modo de teste, lista liberada) e vem
   // ANTES de qualquer criação: se ela recusar, a campanha pausa sem ter deixado contato,
@@ -268,16 +334,6 @@ export async function sendNextCandidate(
       ? await prepararCandidatoNoEnvio(db, admin, c, cfg, queued)
       : queued;
   if (!p) return;
-  // O idioma da instalação decide a PALAVRA de saída. Uma consulta por envio, no
-  // mesmo caminho que já faz várias — e o envio é limitado a 1 por vez pelo
-  // ritmo anti-banimento, então não há volume aqui para otimizar.
-  const locale =
-    (
-      await db.query<{ locale: string | null }>(
-        "select locale from organizations where id=$1",
-        [c.organization_id],
-      )
-    ).rows[0]?.locale ?? null;
   const boundary = parseServiceBoundary(p.service_boundary);
   if (!boundary || !p.contact_id || !p.conversation_id)
     // DO CANDIDATO: este não tem contato/conversa resolvidos. O próximo pode ter.
@@ -344,47 +400,57 @@ export async function sendNextCandidate(
     // sem rede). A prévia guardada só entra se ainda estiver ancorada na
     // auditoria atual E escrita pelo MESMO agente (`previaDoAgente`); vencida ou
     // de outro agente (a do padrão da organização), o envio escreve do zero.
-    const personalizacao = await personalizacaoDaOrganizacao(db, c.organization_id);
-    const site = siteEfetivo(p.data, new Date().toISOString());
-    const estrategia = site
-      ? estrategiaDoCandidato(p.data, site, {
-          ofertas: (cfg.ofertas ?? ["site"]) as OfertaDaCampanha[],
-          nicho: c.search?.niche ?? p.data.category ?? "",
-          sobrescritaVocabulario: personalizacao.vocabulario ?? null,
-          status: p.status,
-        })
-      : null;
-    // Modo "saída na 2ª": a 1ª mensagem só cumprimenta, então nada de ângulo de
-    // venda — nem estratégia (na instrução) nem Auditoria/Detalhe/Rascunho (nos
-    // dados), que o prompt frio deixa citar "como o motivo do contato".
-    const soCumprimenta = cfg.exit_offer !== "first_message";
-    const generated = await gerarAbordagemDeFormulario(pool, llmEdgeConfigFromEnv(env), {
-      tenantId: c.organization_id,
-      agentId: cfg.agent_id,
-      leadId: p.contact_id,
-      instrucao: instrucaoDeAbordagemFria(
-        cfg.instruction,
-        cfg.qualification,
-        blocoVozVendedor(personalizacao) || undefined,
-        estrategia,
-        soCumprimenta,
-      ),
-      origem: "Pesquisa de empresas",
-      // NÃO é `automacao`: a pessoa não entrou em funil nenhum. O prompt do
-      // ramo frio é o único que proíbe afirmar preenchimento — ver blocoDeModo.
-      origemDaAbordagem: "prospeccao_fria",
-      // Fonte única em `montarDadosDeAbordagem` (prévia da tela bebe da mesma).
-      dados: soCumprimenta
-        ? montarDadosDeAbordagem(p.data, null, null)
-        : montarDadosDeAbordagem(p.data, site, previaDoAgente(p.data, cfg.agent_id)),
-    });
-    if (!generated.ok)
-      // DO CANDIDATO: o modelo não produziu texto para ESTES dados.
-      throw new ProspectingError(
-        `A IA não produziu uma abordagem: ${generated.reason}.`,
-        422,
-        "candidato",
-      );
+    // Modo "saída na 2ª": a 1ª mensagem só cumprimenta, então nada de ângulo de venda.
+    // `every_message` NÃO é "só cumprimenta": o rodapé acompanha todo envio e a 1ª mensagem
+    // é a abordagem comercial normal (como em `first_message`).
+    const rodapeJaNaPrimeira = cfg.exit_offer === "first_message" || cfg.exit_offer === "every_message";
+    // Campanha com produto: o texto JÁ está montado e validado (acima); a IA não é chamada.
+    let textoDaAbordagem: string;
+    if (msg1DoProduto !== null) {
+      textoDaAbordagem = msg1DoProduto;
+    } else {
+      const personalizacao = await personalizacaoDaOrganizacao(db, c.organization_id);
+      const site = siteEfetivo(p.data, new Date().toISOString());
+      const estrategia = site
+        ? estrategiaDoCandidato(p.data, site, {
+            ofertas: (cfg.ofertas ?? ["site"]) as OfertaDaCampanha[],
+            nicho: c.search?.niche ?? p.data.category ?? "",
+            sobrescritaVocabulario: personalizacao.vocabulario ?? null,
+            status: p.status,
+          })
+        : null;
+      // Nem estratégia (na instrução) nem Auditoria/Detalhe/Rascunho (nos dados), que o
+      // prompt frio deixa citar "como o motivo do contato", quando só cumprimenta.
+      const soCumprimenta = !rodapeJaNaPrimeira;
+      const generated = await gerarAbordagemDeFormulario(pool, llmEdgeConfigFromEnv(env), {
+        tenantId: c.organization_id,
+        agentId: cfg.agent_id,
+        leadId: p.contact_id,
+        instrucao: instrucaoDeAbordagemFria(
+          cfg.instruction,
+          cfg.qualification,
+          blocoVozVendedor(personalizacao) || undefined,
+          estrategia,
+          soCumprimenta,
+        ),
+        origem: "Pesquisa de empresas",
+        // NÃO é `automacao`: a pessoa não entrou em funil nenhum. O prompt do
+        // ramo frio é o único que proíbe afirmar preenchimento — ver blocoDeModo.
+        origemDaAbordagem: "prospeccao_fria",
+        // Fonte única em `montarDadosDeAbordagem` (prévia da tela bebe da mesma).
+        dados: soCumprimenta
+          ? montarDadosDeAbordagem(p.data, null, null)
+          : montarDadosDeAbordagem(p.data, site, previaDoAgente(p.data, cfg.agent_id)),
+      });
+      if (!generated.ok)
+        // DO CANDIDATO: o modelo não produziu texto para ESTES dados.
+        throw new ProspectingError(
+          `A IA não produziu uma abordagem: ${generated.reason}.`,
+          422,
+          "candidato",
+        );
+      textoDaAbordagem = generated.texto;
+    }
     await assertProspectingDelivery(admin, guard);
     const authorization = await autorizarContatoParaIA(admin, {
       organizationId: c.organization_id,
@@ -415,12 +481,18 @@ export async function sendNextCandidate(
     // `split_max_chars` — é o mesmo preço que o `splitForSend` já paga quando o
     // teto de bolhas do turno é atingido: a alternativa seria picar a saída em
     // duas mensagens, e aí ela voltaria a depender de uma bolha posterior.
-    const baloes = splitForSend(
-      generated.texto,
-      agent.split_messages ?? false,
-      agent.split_max_chars ?? 600,
-      TETO_DE_BOLHAS_DA_ABORDAGEM,
-    );
+    // Msg 1 do produto: UMA bolha, sempre. O texto fixo já traz o rodapé no fim; fatiá-lo com o
+    // estilo do agente poria o rodapé numa bolha posterior (que pode nem sair) e entregaria uma
+    // mensagem diferente da que a prévia mostrou.
+    const baloes =
+      msg1DoProduto !== null
+        ? [textoDaAbordagem]
+        : splitForSend(
+            textoDaAbordagem,
+            agent.split_messages ?? false,
+            agent.split_max_chars ?? 600,
+            TETO_DE_BOLHAS_DA_ABORDAGEM,
+          );
     // Texto vazio com o estilo ligado não devolve bolha nenhuma (`splitForSend` →
     // `[]`), e a abordagem fria não pode sair sem bolha nenhuma: neste caso a
     // primeira bolha é vazia (e, no modo `first_message`, é ela que leva o rodapé).
@@ -434,7 +506,7 @@ export async function sendNextCandidate(
     // (é o `context.ts` que manda o agente só cumprimentar na primeira). Pôr o
     // rodapé aqui incondicionalmente ofereceria a saída DUAS vezes — e na
     // mensagem que o operador não escolheu.
-    if (cfg.exit_offer === "first_message") baloes[0] = comSaida(baloes[0]!, locale);
+    if (rodapeJaNaPrimeira) baloes[0] = comSaida(baloes[0]!, locale);
     let mensagem: Message | undefined;
     let falhouEm: Message | undefined;
     /** A conversa deixou de ser fria ENTRE bolhas: a pessoa respondeu ou um humano assumiu. */

@@ -30,6 +30,8 @@ const SEM_REDE: ReadonlySet<ClasseDeSite> = new Set(["sem-site", "agregador"]);
 
 export interface PreviaDaAbordagem {
   mensagem: string;
+  /** Só campanha com produto: a Msg 2 que o agente envia literal se a pessoa aceitar. */
+  mensagem_2?: string;
   estrategia: EstrategiaDoLead;
   score: Pontuacao;
 }
@@ -193,8 +195,17 @@ export function AuditoriaDoCandidato({
             </p>
           )}
           {previa && (
-            <div ref={previaRef} className="rounded-md border p-3 text-xs leading-relaxed">
+            <div ref={previaRef} className="space-y-3 rounded-md border p-3 text-xs leading-relaxed">
+              {previa.mensagem_2 && (
+                <p className="font-medium">{t("Mensagem 1 (a abertura)")}</p>
+              )}
               <p className="whitespace-pre-wrap">{previa.mensagem}</p>
+              {previa.mensagem_2 && (
+                <>
+                  <p className="font-medium">{t("Mensagem 2 (se a pessoa aceitar)")}</p>
+                  <p className="whitespace-pre-wrap">{previa.mensagem_2}</p>
+                </>
+              )}
             </div>
           )}
         </DialogContent>

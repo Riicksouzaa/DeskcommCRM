@@ -219,6 +219,8 @@ import { turnoDisparaNasMensagens } from './palavra-chave-do-gatilho';
 import { agenteJaRespondeuNoAtendimento } from './agente-ja-respondeu';
 import { enviaAvisoForaDoHorario, portasDeProducao } from './aviso-fora-do-horario';
 import { enviarComSaidaConfiguravel } from "@/lib/prospecting/saida-configuravel";
+import { conferirMsg2DoTurno, msg2PendenteDoTurno } from "@/lib/prospecting/produto/msg2";
+import { compararComEsperado } from "@/lib/prospecting/produto/roteiro";
 import { janelaDeEnvioAberta, proximaAberturaDaJanela } from '../pacing/engine';
 import { adiadoPorJanela } from '../pacing/adiados-da-janela';
 import { loadChannelKnobs } from '../pacing/store';
@@ -3808,6 +3810,9 @@ async function executarTurnoDoAgente(
   // O que o modelo de fato mandou neste turno (depois da cadeia). A trava "a
   // pergunta saiu?" do roteiro de atendimento lê daqui.
   const corposEnviados: string[] = [];
+  // Os corpos que o canal ACEITOU (`sent`/`queued`/`already_sent`). A conferência da Msg 2 da
+  // prospecção lê daqui: texto vetado ou falhado não é "a Msg 2 saiu".
+  const corposConfirmados: string[] = [];
   // DUPLICATA PRÓXIMA NO MESMO TURNO: a trava `near-dup.ts` guarda DUAS memórias.
   // `aceitos` = corpos de `send_message` que PASSARAM pela cadeia e foram aceitos
   // neste turno (o corpo PRÉ-cadeia, para comparar candidato contra candidato) —
@@ -4812,6 +4817,17 @@ async function executarTurnoDoAgente(
             // não é dele, e a única saída seria o silêncio. O follow-up determinístico
             // idem (ver GateContext.internalVocabularyEnforced).
             enforceInternalVocabulary: true,
+            // A MSG 2 DA PROSPECÇÃO é um template do SISTEMA, igual para toda empresa com os
+            // mesmos achados (só o nome muda): o gate de spinning (Jaccard >= 0,8 com 2 cópias
+            // na janela do número) a vetaria a partir da 3ª aceitação e o modelo a reescreveria,
+            // transformando toda aceitação em "reescrita". Fica desarmado SÓ quando o corpo
+            // contém a Msg 2 montada inteira (e então ela também não entra na janela de cópias);
+            // qualquer outro corpo do mesmo turno segue julgado. É resposta a quem aceitou, não
+            // abordagem fria.
+            ...(msg2DaProspeccao !== null &&
+            compararComEsperado(body, msg2DaProspeccao.esperada).igual
+              ? { enforceSpinning: false }
+              : {}),
             // Afirmação clínica: mesma razão do vocabulário (só o corpo do MODELO), e
             // só para a organização que ligou a camada — ver
             // `GateContext.clinicalClaimEnforced`. Sem linha, desligada: não há padrão de
@@ -4963,6 +4979,16 @@ async function executarTurnoDoAgente(
                         send: (bubble) => enviar(bubble),
                       }),
                   });
+              }).then((resultadoDoEnvio) => {
+                // Só o que o canal ACEITOU conta como "saiu" para a conferência da Msg 2 da
+                // prospecção (`corposEnviados` é empurrado ANTES do resultado do canal).
+                if (
+                  resultadoDoEnvio.kind === 'sent' ||
+                  resultadoDoEnvio.kind === 'queued' ||
+                  resultadoDoEnvio.kind === 'already_sent'
+                )
+                  corposConfirmados.push(finalBody);
+                return resultadoDoEnvio;
               });
             },
           };
@@ -5593,6 +5619,8 @@ async function executarTurnoDoAgente(
     snapshotDoCaso(effectiveContext.contact.name, effectiveContext.messages);
 
   let caseAwaitingLead: Awaited<ReturnType<typeof getCaseAwaitingLead>> = null;
+  // A Msg 2 pendente da prospecção neste turno (campanha com produto), ou null.
+  let msg2DaProspeccao: Awaited<ReturnType<typeof msg2PendenteDoTurno>> = null;
 
   // Spec 15 (Wave 3a): tools de caso humano (open_human_case/provide_case_update) só
   // entram quando a tela habilita (cases_enabled) — mesmo padrão do handoff acima.
@@ -6276,9 +6304,18 @@ async function executarTurnoDoAgente(
     const feriadoBlock = blocoDoFeriado(
       await lerFeriadoDoTurno(pool, tenantId, clock(), fusoDaOrg, runLog),
     );
+    // A MSG 2 DA PROSPECÇÃO (campanha com produto cadastrado): montada pelo sistema, entregue
+    // PRONTA no sufixo por-lead — é DADO (leva o nome do negócio, texto de terceiro), então não
+    // entra no `system`. Só no turno que RESPONDE a pessoa; nunca na prévia nem no follow-up.
+    // Calculada UMA vez aqui: a conferência do fim do turno compara contra esta mesma string.
+    msg2DaProspeccao =
+      !preview && liveJob().kind === 'inbound_turn' && input.conversationId
+        ? await msg2PendenteDoTurno(pool, tenantId, input.conversationId)
+        : null;
     const openingSuffixes = [
       agoraBlock,
       feriadoBlock,
+      msg2DaProspeccao?.bloco ?? '',
       matchedSkillsBlock,
       stageHintBlock,
       splitHint,
@@ -6738,6 +6775,19 @@ async function executarTurnoDoAgente(
           });
         }
       }
+    }
+
+    // CONFERÊNCIA DA MSG 2 DA PROSPECÇÃO (D4 = A): o corpo que o canal aceitou é comparado com a
+    // Msg 2 que o sistema montou. Igual -> marca "já saiu" (não reenvia); reescrita -> marca, avisa
+    // a Central e audita, SEM desfazer o envio; outra coisa (recusa, pergunta) -> segue pendente.
+    // Fail-open: `conferirMsg2DoTurno` não lança.
+    if (msg2DaProspeccao !== null && input.conversationId && corposConfirmados.length > 0) {
+      await conferirMsg2DoTurno(pool, {
+        org: tenantId,
+        conversationId: input.conversationId,
+        msg2: msg2DaProspeccao,
+        corposConfirmados,
+      });
     }
 
     // ROTEIRO: a pergunta pendente é compromisso. Se o modelo não a fez, o motor

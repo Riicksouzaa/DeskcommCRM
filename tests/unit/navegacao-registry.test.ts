@@ -180,6 +180,8 @@ describe("hubSections", () => {
     expect(secoes.map((s) => s.section)).toEqual(["O dia a dia da venda", "Preparar a venda", "Fechar a venda"]);
     expect(secoes.flatMap((s) => s.items.map((i) => i.href))).toEqual([
       "/app/prospecting",
+      // Cadastro do que a prospecção oferece; fora do menu lateral, a porta é o hub e o ⌘K.
+      "/app/prospecting/produtos",
       // Doc 208 (A): a fila de espera da agenda. Só com o módulo instalado.
       "/app/agenda/lista-de-espera",
       "/app/kanban",

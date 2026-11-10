@@ -126,6 +126,21 @@ export const SQL_MENSAGEM_GUARDADA = `
 `;
 
 /**
+ * O modo de saída da campanha desta conversa. Uma consulta, filtrada por
+ * organização. Params: ($1 = organization_id, $2 = conversation_id).
+ */
+export const SQL_MODO_DA_CAMPANHA = `
+    select c.config->>'exit_offer' as modo,
+           (select o.locale from public.organizations o where o.id = $1) as locale
+      from public.prospecting_candidates p
+      join public.prospecting_campaigns c
+        on c.organization_id = p.organization_id and c.id = p.campaign_id
+     where p.organization_id = $1 and p.conversation_id = $2
+       and p.status in ('sending', 'sent')
+     limit 1
+`;
+
+/**
  * Conta este envio automático e, se for a vez, reserva a saída.
  *
  * Retorna `null` quando não há candidato em `sending`/`sent` nesta conversa
@@ -207,13 +222,25 @@ export async function enviarComSaidaConfiguravel(
         // tentativa; o turno re-roda depois de um crash): não conta de novo, e repete a decisão que
         // está no corpo guardado — o canal transmite o corpo DESTA tentativa, e
         // ele tem de dizer o mesmo que a tela e a contagem já dizem.
+        // Em `every_message` o corpo guardado já tem o rodapé, então este mesmo
+        // ramo o repõe uma vez só (`comSaida` é idempotente).
         // ponytail: a decisão vem da 1ª mensagem física; numa resposta fatiada
         // em bolhas o rodapé mora na última, e o reprocesso sai sem ele.
         const { body, locale } = guardada[0];
         if (body !== null && temSaida(body, locale)) corpo = comSaida(corpo, locale);
       } else {
-        r = await contarEnvioAutomatico(db, organizationId, conversationId);
-        if (r?.levaASaida) corpo = comSaida(corpo, r.locale);
+        // `every_message`: o rodapé acompanha TODO envio, sem contar nem reservar.
+        // `r` fica null, então o pós-envio abaixo não desfaz, não amarra, não audita.
+        const { rows: modo } = await db.query<{ modo: string | null; locale: string | null }>(
+          SQL_MODO_DA_CAMPANHA,
+          [organizationId, conversationId],
+        );
+        if (modo[0]?.modo === "every_message") {
+          corpo = comSaida(corpo, modo[0].locale);
+        } else {
+          r = await contarEnvioAutomatico(db, organizationId, conversationId);
+          if (r?.levaASaida) corpo = comSaida(corpo, r.locale);
+        }
       }
     } catch (erroContagem) {
       opcoes.avisar("contagem de saída automática falhou; segue sem a saída", {

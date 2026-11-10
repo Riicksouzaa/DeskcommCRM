@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { SiteEnrichment } from "@/lib/prospecting/site-classify";
 import type { PreviaSalva } from "@/lib/prospecting/previa";
 import { normalizarTags, TAMANHO_MAXIMO_DA_TAG } from "@/lib/contacts/tag-normalizada";
+import { produtoSnapshotSchema } from "@/lib/prospecting/produto/snapshot";
 
 /**
  * Os dois números do RITMO da campanha, com os mesmos limites no início e no
@@ -91,9 +92,17 @@ export const campaignConfigSchema = z
     // TODOS os modos a palavra continua bloqueando (lib/channels/pos-entrada.ts).
     // O padrão é `first_message`: configuração gravada antes desta chave existir segue
     // igual, sem ninguém editar nada.
-    exit_offer: z.enum(["first_message", "second_message"]).default("first_message"),
+    // `every_message`: o rodapé acompanha TODO envio automático (sem contar nem reservar). É o
+    // modo que a campanha com produto cadastrado força na ativação.
+    exit_offer: z.enum(["first_message", "second_message", "every_message"]).default("first_message"),
     // Etiquetas do contato na abordagem (spec 27). Ausente = a campanha não etiqueta ninguém.
     contact_tags: contactTagsSchema.optional(),
+    // O PRODUTO CADASTRADO que a campanha vende (spec 2026-11-10-prospeccao-produto-da-campanha-design).
+    // `product_id` é a escolha do operador; `product_snapshot` é o RETRATO que o SERVIDOR grava na
+    // ativação (`activateCampaign`) e que o cliente nunca decide: o que vier no corpo é descartado.
+    // Ausentes = campanha sem produto, exatamente o comportamento de sempre.
+    product_id: z.string().uuid().optional(),
+    product_snapshot: produtoSnapshotSchema.optional(),
   })
   .strict();
 export const searchSchema = z
@@ -178,6 +187,9 @@ export const prospectingInputSchema = z.discriminatedUnion("action", [
       action: z.literal("prever_abordagem"),
       id: z.string().uuid(),
       candidate_id: z.string().uuid(),
+      // Prévia de campanha em RASCUNHO com o produto já escolhido na tela (o retrato só nasce na
+      // ativação). O servidor lê o produto desta organização; o id nunca vira organização.
+      product_id: z.string().uuid().optional(),
     })
     .strict(),
   // Verificação de site sob demanda (spec 24): enriquece o próximo lote da
