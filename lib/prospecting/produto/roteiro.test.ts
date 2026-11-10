@@ -142,13 +142,22 @@ describe("montarMensagem1", () => {
   });
   it("ponto final do achado não duplica", () => {
     const m = montarMensagem1(ctx([ach("a", 1, true, "sem cadeado.")]));
-    expect(m).toContain("Um deles: sem cadeado.\n");
+    expect(m).toContain("custando clientes: sem cadeado.\n");
+    expect(m).not.toContain("sem cadeado..");
+  });
+  it("UM achado só: não diz 'pontos', 'um deles' nem 'os outros' (a Msg 2 não teria outro)", () => {
+    const m = montarMensagem1(ctx([ach("a", 1, true, "sem cadeado")]));
+    expect(m).toContain("vimos um ponto que pode estar custando clientes: sem cadeado.");
+    expect(m).toContain("Quer que eu mostre como resolver?");
+    expect(m).not.toMatch(/pontos|Um deles|os outros/);
+    expect(validarTexto(m, produto)).toEqual({ ok: true });
   });
   it("vimos_curto de 300 chars sai com <=140", () => {
     const longo = Array.from({ length: 50 }, (_, i) => `termo${i}`).join(" ");
     const m = montarMensagem1(ctx([ach("a", 1, true, longo)]));
-    const linha = m.split("\n").find((l) => l.startsWith("Um deles: "))!;
-    expect(linha.length).toBeLessThanOrEqual("Um deles: ".length + 140 + 1);
+    const linha = m.split("\n").find((l) => l.includes("custando clientes: "))!;
+    const achado = linha.slice(linha.indexOf("custando clientes: ") + "custando clientes: ".length);
+    expect(achado.length).toBeLessThanOrEqual(140 + 1);
   });
   it("empresa com caracteres especiais fica literal e em uma linha", () => {
     const m = montarMensagem1(ctx([ach("a", 1)], produto, 'Bar & Cia. "O Zé" $1 {x}\nlinha2'));

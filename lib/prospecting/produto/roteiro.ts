@@ -178,13 +178,25 @@ export interface ContextoDaMensagem {
  * texto e o rodapé nunca duplica.
  */
 export function montarMensagem1(ctx: ContextoDaMensagem): string {
-  const critico = escolherAchadoCritico(ctx.achados, ctx.produto);
+  const usaveis = achadosUsaveis(ctx.achados, ctx.produto);
+  const critico = usaveis[0]?.achado;
   if (!critico) {
     throw new Error(
       "montarMensagem1: empresa sem achado citável com solução; cheque elegibilidade() antes.",
     );
   }
   const achado = semPontoFinal(limitarSemCortarPalavra(critico.vimos_curto));
+  // UM achado só: "vimos pontos", "um deles" e "os outros" seriam falsos — a Msg 2 não teria
+  // outro para mostrar. A honestidade da Msg 1 acompanha o número que a Msg 2 vai mostrar.
+  if (usaveis.length === 1) {
+    return [
+      `Olá, ${umaLinha(ctx.contato)}. Aqui é ${umaLinha(ctx.assina)}, da ${umaLinha(ctx.produto.nome)}.`,
+      `Analisamos a presença digital da ${umaLinha(ctx.empresa)} e vimos um ponto que pode estar custando clientes: ${achado}.`,
+      "Quer que eu mostre como resolver?",
+      "",
+      rodapeDeSaida(ctx.locale),
+    ].join("\n");
+  }
   return [
     `Olá, ${umaLinha(ctx.contato)}. Aqui é ${umaLinha(ctx.assina)}, da ${umaLinha(ctx.produto.nome)}.`,
     `Analisamos a presença digital da ${umaLinha(ctx.empresa)} e vimos pontos que podem estar custando clientes.`,
