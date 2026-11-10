@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { countAs, sql, writeCountAs } from "./gov-helpers";
 
-// Prova da 9313 (prospecting_products): isolamento entre 2 organizações e a
+// Prova da F001 (prospecting_products): isolamento entre 2 organizações e a
 // regra de escrita (manager+). Identificadores só desta fixture.
 const ORG_A = "c0913000-0000-4000-8000-000000000001";
 const ORG_B = "c0913000-0000-4000-8000-000000000002";

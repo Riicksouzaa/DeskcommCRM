@@ -37,6 +37,8 @@ if ! command -v vitest >/dev/null 2>&1; then
   exit 1
 fi
 BASELINE="$ROOT/supabase/baseline.sql"
+# Apêndice do FORK (supabase/fork/README.md): aplicado depois do baseline do produto, se existir.
+BASELINE_FORK="$ROOT/supabase/fork/baseline-fork.sql"
 # A PORTA: quem PEDE escolhe; quem não pede deixa o Docker escolher.
 #
 # Antes era 54329 fixo, e duas sessões rodando `test:db` ao mesmo tempo colidiam:
@@ -109,7 +111,7 @@ TEMPLATE="inv_baseline"
 # Esta forma é idêntica nos dois: caminho completo, seis X, sem depender de como
 # cada `mktemp` interpreta `-t`.
 CARIMBO="$(mktemp "${TMPDIR:-/tmp}/deskcomm-test-db-carimbo.XXXXXX")"
-MEDIDOS=("$BASELINE" "$ROOT/tests/invariants" "$ROOT/scripts/test-db.sh" "$ROOT/vitest.db.config.ts")
+MEDIDOS=("$BASELINE" "$BASELINE_FORK" "$ROOT/tests/invariants" "$ROOT/scripts/test-db.sh" "$ROOT/vitest.db.config.ts")
 
 arvore_mexeu() {
   find "${MEDIDOS[@]}" -type f -newer "$CARIMBO" 2>/dev/null | head -20
@@ -184,6 +186,7 @@ psql_install() {
 # lê recebeu, em vez de confiar na posição das linhas deste script.
 aplicar_baseline() {
   psql_install < "$BASELINE"
+  [ -f "$BASELINE_FORK" ] && psql_install < "$BASELINE_FORK"
   psql_install <<'SQL'
 set client_min_messages = warning;
 create schema if not exists test_db;

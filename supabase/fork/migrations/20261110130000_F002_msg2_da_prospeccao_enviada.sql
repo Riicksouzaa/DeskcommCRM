@@ -1,6 +1,6 @@
 -- manifest: Estado da Msg 2 do roteiro "achado primeiro" (prospecting_candidates.msg2_sent_at/msg2_literal): impede reenviar a Msg 2 e registra se saiu literal ou divergente.
 -- ============================================================================
--- 9314 — A MSG 2 DA PROSPECÇÃO JÁ SAIU?
+-- F002 — A MSG 2 DA PROSPECÇÃO JÁ SAIU?
 --
 -- Na campanha com produto cadastrado (spec 2026-11-10-prospeccao-produto-da-
 -- campanha-design, D4 = A), a Msg 2 é montada pelo sistema e entregue ao agente

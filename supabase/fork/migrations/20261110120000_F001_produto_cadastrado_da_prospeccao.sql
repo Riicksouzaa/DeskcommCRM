@@ -1,6 +1,6 @@
 -- manifest: Produto cadastrado da prospecção (prospecting_products): o que a campanha vende, com o mapa achado -> solução, por organização, com RLS.
 -- ============================================================================
--- 9313 — PRODUTO CADASTRADO DA PROSPECÇÃO
+-- F001 — PRODUTO CADASTRADO DA PROSPECÇÃO
 --
 -- Um registro por organização que diz O QUE a campanha vende, em palavras da
 -- organização (spec 2026-11-10-prospeccao-produto-da-campanha-design.md §3).
