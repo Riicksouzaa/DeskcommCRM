@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { validarModelo } from "@/lib/prospecting/produto/modelo";
 import { CLASSES_DE_SITE } from "@/lib/prospecting/site-classify";
 
 /**
@@ -72,6 +73,8 @@ export const LIMITES_DO_PRODUTO = {
   maxSolucoes: 20,
   proibicao: 60,
   maxProibicoes: 20,
+  /** Texto de uma mensagem (modelo.ts). */
+  mensagem: 1200,
 } as const;
 
 const textoObrigatorio = (max: number) => z.string().trim().min(1).max(max);
@@ -83,6 +86,18 @@ const textoOpcional = (max: number) =>
     .max(max)
     .nullish()
     .transform((v) => (v ? v : null));
+
+/** Texto de uma mensagem, com marcadores (modelo.ts). Vazio vira `null`; marcador inexistente é recusado. */
+const modeloDeMensagem = z
+  .string()
+  .trim()
+  .max(LIMITES_DO_PRODUTO.mensagem)
+  .nullish()
+  .transform((v) => (v ? v : null))
+  .superRefine((v, ctx) => {
+    if (!v) return;
+    for (const motivo of validarModelo(v)) ctx.addIssue({ code: "custom", message: motivo });
+  });
 
 const linkHttps = z
   .string()
@@ -144,6 +159,8 @@ const camposDoProduto = {
   link_demo: linkHttps,
   proibicoes: proibicoesSchema,
   assina: textoOpcional(LIMITES_DO_PRODUTO.assina),
+  mensagem_1: modeloDeMensagem,
+  mensagem_2: modeloDeMensagem,
 };
 
 /** Criação. `solucoes` e `proibicoes` ausentes valem vazio. Chave desconhecida é recusada. */
@@ -175,6 +192,10 @@ export interface ProdutoDaProspeccao {
   link_demo: string | null;
   proibicoes: string[];
   assina: string | null;
+  /** Modelo de texto da Msg 1 (modelo.ts); `null` = roteiro "achado primeiro". */
+  mensagem_1: string | null;
+  /** Modelo de texto da Msg 2; `null` com `mensagem_1` presente = sem Msg 2 do sistema. */
+  mensagem_2: string | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;

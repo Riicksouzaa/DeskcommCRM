@@ -26,6 +26,10 @@ export interface ProdutoDoRoteiro {
   prova?: string | null;
   link_demo?: string | null;
   proibicoes: string[];
+  /** Modelo de texto da Msg 1 (modelo.ts). Ausente = roteiro "achado primeiro" de sempre. */
+  mensagem_1?: string | null;
+  /** Modelo de texto da Msg 2. Ausente com `mensagem_1` presente = não há Msg 2 do sistema. */
+  mensagem_2?: string | null;
 }
 
 export interface AchadoDaEmpresa {
@@ -45,15 +49,15 @@ export const MAXIMO_ACHADOS_NA_MSG2 = 3;
 // ─── utilidades ──────────────────────────────────────────────────────────────
 
 /** Uma linha só: quebra de linha em dado de terceiro não pode criar linha nova na mensagem. */
-function umaLinha(texto: string): string {
+export function umaLinha(texto: string): string {
   return texto.replace(/\s+/g, " ").trim();
 }
 
-function semPontoFinal(texto: string): string {
+export function semPontoFinal(texto: string): string {
   return texto.replace(/[\s.]+$/u, "");
 }
 
-function solucaoDe(produto: ProdutoDoRoteiro, codigo: string): string | null {
+export function solucaoDe(produto: ProdutoDoRoteiro, codigo: string): string | null {
   // `hasOwn`: um código "constructor" ou "__proto__" não pode herdar solução do protótipo.
   if (!Object.prototype.hasOwnProperty.call(produto.solucoes, codigo)) return null;
   const s = umaLinha(produto.solucoes[codigo] ?? "");

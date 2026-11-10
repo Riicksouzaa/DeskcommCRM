@@ -149,7 +149,7 @@ describe("avaliarCandidatoParaProduto (D2 = A: 1 achado com solução basta)", (
       AGORA,
     );
     expect(v.estado).toBe("elegivel");
-    if (v.estado === "elegivel") expect(v.critico.codigo).toBe("nao-mobile");
+    if (v.estado === "elegivel") expect(v.critico?.codigo).toBe("nao-mobile");
   });
 
   it("achado citável SEM solução: inelegível, com o motivo escrito", () => {

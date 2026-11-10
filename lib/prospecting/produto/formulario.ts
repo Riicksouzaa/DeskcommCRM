@@ -15,6 +15,9 @@ export interface FormularioDoProduto {
   proibicoes: string;
   /** Código de achado -> frase. Código ausente = linha vazia. */
   solucoes: Record<string, string>;
+  /** Modelos de texto da Msg 1 e da Msg 2, com marcadores (modelo.ts). Vazio = roteiro de sempre. */
+  mensagem1: string;
+  mensagem2: string;
 }
 
 export const FORMULARIO_VAZIO: FormularioDoProduto = {
@@ -26,6 +29,8 @@ export const FORMULARIO_VAZIO: FormularioDoProduto = {
   prova: "",
   proibicoes: "",
   solucoes: {},
+  mensagem1: "",
+  mensagem2: "",
 };
 
 export function formularioDoProduto(p: ProdutoDaProspeccao): FormularioDoProduto {
@@ -38,6 +43,8 @@ export function formularioDoProduto(p: ProdutoDaProspeccao): FormularioDoProduto
     prova: p.prova ?? "",
     proibicoes: p.proibicoes.join("\n"),
     solucoes: { ...p.solucoes },
+    mensagem1: p.mensagem_1 ?? "",
+    mensagem2: p.mensagem_2 ?? "",
   };
 }
 
@@ -64,6 +71,8 @@ export function corpoDoProduto(f: FormularioDoProduto) {
     prova: f.prova.trim() || null,
     proibicoes: termosDeProibicao(f.proibicoes),
     solucoes,
+    mensagem_1: f.mensagem1.trim() || null,
+    mensagem_2: f.mensagem2.trim() || null,
   };
 }
 
@@ -88,6 +97,8 @@ export function mensagemDeErroDoProduto(
       prova: t("O que você oferece"),
       proibicoes: t("Termos proibidos"),
       solucoes: t("Problema encontrado → como você resolve"),
+      mensagem_1: t("Mensagem 1"),
+      mensagem_2: t("Mensagem 2"),
     };
     const campos = Object.keys(detalhes ?? {}).map((c) => nomes[c] ?? c);
     return campos.length

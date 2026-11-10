@@ -8,6 +8,7 @@ import {
   type AchadoDaEmpresa,
   type ProdutoDoRoteiro,
 } from "@/lib/prospecting/produto/roteiro";
+import { modeloUsaAchado } from "@/lib/prospecting/produto/modelo";
 import { deveReverificar, siteEfetivo, type DadosComSite } from "@/lib/prospecting/site-efetivo";
 import {
   citavelNoArgumento,
@@ -181,7 +182,8 @@ export type VereditoDoCandidato =
   | { estado: "inelegivel"; motivo: string }
   | {
       estado: "elegivel";
-      critico: AchadoDaEmpresa;
+      /** `null` quando o modelo do produto abre a empresa sem achado (modelo.ts). */
+      critico: AchadoDaEmpresa | null;
       citaveisComSolucao: AchadoDaEmpresa[];
       achados: AchadoDaEmpresa[];
     };
@@ -198,6 +200,16 @@ export function avaliarCandidatoParaProduto(
   produto: ProdutoDoRoteiro,
   agoraIso: string,
 ): VereditoDoCandidato {
+  // MODELO DE MENSAGEM SEM ACHADO (modelo.ts): se nenhum dos textos do produto usa {achado} nem
+  // {solucao}, a empresa não depende da auditoria — é elegível agora, mesmo com o site ainda em
+  // medição ou barrando a nossa. A auditoria segue rodando (a tela a mostra), só não decide.
+  if (
+    produto.mensagem_1?.trim() &&
+    !modeloUsaAchado(produto.mensagem_1) &&
+    !modeloUsaAchado(produto.mensagem_2)
+  ) {
+    return { estado: "elegivel", critico: null, citaveisComSolucao: [], achados: [] };
+  }
   const lidos = achadosDaEmpresa(data, agoraIso);
   if (lidos.estado === "pendente")
     return { estado: "pendente", motivo: "A auditoria do site ainda não terminou." };

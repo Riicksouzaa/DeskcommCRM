@@ -32,12 +32,14 @@ describe("formulário do produto", () => {
     const p: ProdutoDaProspeccao = {
       id: "i", nome: "N", categoria: "C", resumo: "R", solucoes: { lento: "Aceleramos" },
       prova: "Teste grátis", link_demo: "https://x.com.br/demo", proibicoes: ["a", "b"],
-      assina: "Equipe", archived_at: null, created_at: "", updated_at: "",
+      assina: "Equipe", mensagem_1: "Oi {empresa}", mensagem_2: null,
+      archived_at: null, created_at: "", updated_at: "",
     };
     const c = corpoDoProduto(formularioDoProduto(p));
     expect(c).toMatchObject({
       nome: "N", solucoes: { lento: "Aceleramos" }, prova: "Teste grátis",
       link_demo: "https://x.com.br/demo", proibicoes: ["a", "b"], assina: "Equipe",
+      mensagem_1: "Oi {empresa}", mensagem_2: null,
     });
   });
 

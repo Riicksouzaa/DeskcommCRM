@@ -73,6 +73,8 @@ describe("repo do produto: sempre filtra pela organização da sessão", () => {
       prova: null,
       link_demo: null,
       assina: null,
+      mensagem_1: null,
+      mensagem_2: null,
       ...({ organization_id: "outra-org" } as object),
     });
     expect(gravado.organization_id).toBe(ORG);
@@ -83,7 +85,7 @@ describe("repo do produto: sempre filtra pela organização da sessão", () => {
     const dup = cliente({ data: null, error: { code: "23505" } });
     await expect(
       criarProduto(dup.db, ORG, "u", {
-        nome: "n", categoria: "c", resumo: "r", solucoes: {}, proibicoes: [], prova: null, link_demo: null, assina: null,
+        nome: "n", categoria: "c", resumo: "r", solucoes: {}, proibicoes: [], prova: null, link_demo: null, assina: null, mensagem_1: null, mensagem_2: null,
       }),
     ).rejects.toMatchObject({ codigo: "nome_duplicado" });
     const nada = cliente({ data: null, error: null });

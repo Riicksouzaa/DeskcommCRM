@@ -32,6 +32,9 @@ export const produtoSnapshotSchema = z
     proibicoes: z
       .array(z.string().min(1).max(LIMITES_DO_PRODUTO.proibicao))
       .max(LIMITES_DO_PRODUTO.maxProibicoes),
+    /** Modelos de texto da Msg 1 e da Msg 2 (modelo.ts). Opcionais: retrato antigo não os tem. */
+    mensagem_1: z.string().max(LIMITES_DO_PRODUTO.mensagem).nullish(),
+    mensagem_2: z.string().max(LIMITES_DO_PRODUTO.mensagem).nullish(),
   })
   .strict();
 export type ProdutoSnapshot = z.infer<typeof produtoSnapshotSchema>;
@@ -44,7 +47,8 @@ export function construirSnapshot(
   produto: Pick<
     ProdutoDaProspeccao,
     "id" | "nome" | "resumo" | "solucoes" | "prova" | "link_demo" | "proibicoes" | "updated_at"
-  >,
+  > &
+    Partial<Pick<ProdutoDaProspeccao, "mensagem_1" | "mensagem_2">>,
   assina: string,
 ): ProdutoSnapshot {
   return {
@@ -57,12 +61,15 @@ export function construirSnapshot(
     prova: produto.prova ?? null,
     link_demo: produto.link_demo ?? null,
     proibicoes: [...produto.proibicoes],
+    mensagem_1: produto.mensagem_1?.trim() || null,
+    mensagem_2: produto.mensagem_2?.trim() || null,
   };
 }
 
 /** O recorte que o roteiro (módulo puro) entende. */
 export function produtoDoRoteiro(
-  s: Pick<ProdutoSnapshot, "nome" | "resumo" | "solucoes" | "prova" | "link_demo" | "proibicoes">,
+  s: Pick<ProdutoSnapshot, "nome" | "resumo" | "solucoes" | "prova" | "link_demo" | "proibicoes"> &
+    Partial<Pick<ProdutoSnapshot, "mensagem_1" | "mensagem_2">>,
 ): ProdutoDoRoteiro {
   return {
     nome: s.nome,
@@ -71,5 +78,7 @@ export function produtoDoRoteiro(
     prova: s.prova,
     link_demo: s.link_demo,
     proibicoes: s.proibicoes,
+    mensagem_1: s.mensagem_1 ?? null,
+    mensagem_2: s.mensagem_2 ?? null,
   };
 }

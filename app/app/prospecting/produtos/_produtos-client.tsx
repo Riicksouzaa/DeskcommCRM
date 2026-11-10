@@ -307,6 +307,39 @@ function FormularioDoProdutoDialog({
 
           <fieldset className="flex flex-col gap-3 rounded-sm border border-border p-3">
             <legend className="px-1 text-sm font-medium text-text">
+              {t("Textos das mensagens (opcional)")}
+            </legend>
+            <p className="text-xs text-text-muted">
+              {t(
+                "Escreva você mesmo o que a campanha diz. Vazio = o texto padrão, que cita um achado do site. Marcadores: {empresa}, {assina}, {produto}, {resumo}, {link_demo}, {prova}, {achado}, {solucao}. Sem {achado} nem {solucao}, a empresa não precisa ter achado. O aviso para parar de receber é acrescentado pelo sistema.",
+              )}
+            </p>
+            <Campo id="produto-mensagem-1" rotulo={t("Mensagem 1")}>
+              <Textarea
+                id="produto-mensagem-1"
+                rows={6}
+                maxLength={LIMITES_DO_PRODUTO.mensagem}
+                value={f.mensagem1}
+                onChange={set("mensagem1")}
+              />
+            </Campo>
+            <Campo
+              id="produto-mensagem-2"
+              rotulo={t("Mensagem 2")}
+              ajuda={t("Opcional. Sem ela, o agente conduz a conversa pelo prompt dele.")}
+            >
+              <Textarea
+                id="produto-mensagem-2"
+                rows={5}
+                maxLength={LIMITES_DO_PRODUTO.mensagem}
+                value={f.mensagem2}
+                onChange={set("mensagem2")}
+              />
+            </Campo>
+          </fieldset>
+
+          <fieldset className="flex flex-col gap-3 rounded-sm border border-border p-3">
+            <legend className="px-1 text-sm font-medium text-text">
               {t("Problema encontrado → como você resolve")}
             </legend>
             <p className="text-xs text-text-muted">

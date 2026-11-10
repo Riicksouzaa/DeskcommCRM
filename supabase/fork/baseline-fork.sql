@@ -122,3 +122,15 @@ comment on column public.prospecting_candidates.msg2_literal is
 
 
 notify pgrst, 'reload schema';
+
+-- ---- mensagens do produto da prospecção como dado (migration F003) ----
+alter table public.prospecting_products
+  add column if not exists mensagem_1 text,
+  add column if not exists mensagem_2 text;
+
+comment on column public.prospecting_products.mensagem_1 is
+  'Modelo de texto da Msg 1 da campanha, com marcadores {empresa}, {assina}, {produto}, {resumo}, {link_demo}, {prova}, {achado}, {solucao}. Nulo = roteiro achado primeiro.';
+comment on column public.prospecting_products.mensagem_2 is
+  'Modelo de texto da Msg 2. Nulo, com mensagem_1 preenchida, = a campanha não tem Msg 2 do sistema.';
+
+notify pgrst, 'reload schema';

@@ -157,7 +157,7 @@ describe("elegibilidade com plataforma de pedidos", () => {
       AGORA,
     );
     expect(v.estado).toBe("elegivel");
-    if (v.estado === "elegivel") expect(v.critico.codigo).toBe("plataforma-de-pedidos");
+    if (v.estado === "elegivel") expect(v.critico?.codigo).toBe("plataforma-de-pedidos");
   });
 
   it("sem a frase de solução, fica de fora com o motivo escrito (nada inventado)", () => {

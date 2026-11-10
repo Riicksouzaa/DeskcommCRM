@@ -21,9 +21,16 @@ export function blocoDoProdutoParaOAgente(produto: ProdutoSnapshot, msg2JaSaiu: 
   );
   if (produto.proibicoes.length > 0)
     linhas.push(`Nunca escreva estes termos: ${produto.proibicoes.join(", ")}.`);
+  // Produto com TEXTO PRÓPRIO da Msg 1 (modelo.ts): a abertura não fala de achado, e só há Msg 2 do
+  // sistema se o produto também escreveu o modelo dela.
+  const modelo = !!produto.mensagem_1?.trim();
+  const temMsg2 = !modelo || !!produto.mensagem_2?.trim();
   linhas.push(
-    "A primeira mensagem desta conversa citou um achado sobre a empresa e perguntou se a pessoa quer conhecer os outros. Nunca cite um achado que não esteja na Mensagem 2 pronta do sistema.",
+    modelo
+      ? "A primeira mensagem desta conversa já foi enviada pelo sistema e apresentou a empresa e o produto. Nunca a repita nem repita a apresentação."
+      : "A primeira mensagem desta conversa citou um achado sobre a empresa e perguntou se a pessoa quer conhecer os outros. Nunca cite um achado que não esteja na Mensagem 2 pronta do sistema.",
   );
+  if (!temMsg2) return linhas.join("\n");
   linhas.push(
     msg2JaSaiu
       ? "A Mensagem 2 (a apresentação dos achados com a solução) JÁ foi enviada: não a reenvie nem repita a apresentação; siga a conversa a partir da resposta da pessoa."

@@ -27,7 +27,7 @@ export class ProdutoErro extends Error {
 }
 
 export const COLUNAS_DO_PRODUTO =
-  "id, nome, categoria, resumo, solucoes, prova, link_demo, proibicoes, assina, archived_at, created_at, updated_at";
+  "id, nome, categoria, resumo, solucoes, prova, link_demo, proibicoes, assina, mensagem_1, mensagem_2, archived_at, created_at, updated_at";
 
 function mapear(linha: unknown): ProdutoDaProspeccao {
   return linha as ProdutoDaProspeccao;

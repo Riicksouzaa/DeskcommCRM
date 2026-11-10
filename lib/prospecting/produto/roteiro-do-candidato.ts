@@ -4,12 +4,24 @@ import {
   type VereditoDoCandidato,
 } from "@/lib/prospecting/produto/achados-da-empresa";
 import {
+  comRodape,
+  marcadoresSemValor,
+  modeloUsaAchado,
+  renderizarModelo,
+  validarModelo,
+} from "@/lib/prospecting/produto/modelo";
+import {
+  LIMITE_VIMOS_CURTO,
   MAXIMO_ACHADOS_NA_MSG2,
+  limitarSemCortarPalavra,
   montarMensagem1,
   montarMensagem2,
+  semPontoFinal,
+  solucaoDe,
   validarTexto,
   type AchadoDaEmpresa,
   type ContextoDaMensagem,
+  type ProdutoDoRoteiro,
 } from "@/lib/prospecting/produto/roteiro";
 import { produtoDoRoteiro, type ProdutoSnapshot } from "@/lib/prospecting/produto/snapshot";
 import type { DadosComSite } from "@/lib/prospecting/site-efetivo";
@@ -39,8 +51,9 @@ export type RoteiroDoCandidato =
   | {
       estado: "pronto";
       msg1: string;
+      /** Vazio = esta campanha não tem Msg 2 do sistema (modelo só de Msg 1). */
       msg2: string;
-      critico: AchadoDaEmpresa;
+      critico: AchadoDaEmpresa | null;
       /** Os achados que a Msg 2 lista (até 3, citáveis, com solução). */
       citaveisComSolucao: AchadoDaEmpresa[];
       /** Vazio = o texto pode sair. Preenchido = barrado (proibição, emoji, rodapé). */
@@ -60,6 +73,38 @@ export function nomeLimpoDaEmpresa(nome: string): string {
   return limpo.length > 0 ? limpo : "sua empresa";
 }
 
+/**
+ * As mensagens a partir dos MODELOS do produto (modelo.ts). `achado` é o crítico medido da
+ * empresa, ou `null` quando o modelo não usa achado. O rodapé de saída é sempre do sistema.
+ */
+function montarDoModelo(
+  snapshot: ProdutoSnapshot,
+  produto: ProdutoDoRoteiro,
+  nome: string,
+  achado: AchadoDaEmpresa | null,
+  locale: string | null,
+): { msg1: string; msg2: string } {
+  const frase = achado ? semPontoFinal(limitarSemCortarPalavra(achado.vimos_curto, LIMITE_VIMOS_CURTO)) : "";
+  const solucao = achado ? semPontoFinal(solucaoDe(produto, achado.codigo) ?? "") : "";
+  const valores = {
+    empresa: nome,
+    contato: nome,
+    assina: snapshot.assina,
+    produto: snapshot.nome,
+    resumo: snapshot.resumo,
+    link_demo: snapshot.link_demo,
+    prova: snapshot.prova,
+    achado: frase,
+    solucao,
+  };
+  const m1 = snapshot.mensagem_1?.trim() ?? "";
+  const m2 = snapshot.mensagem_2?.trim() ?? "";
+  return {
+    msg1: comRodape(renderizarModelo(m1, valores), locale),
+    msg2: m2 ? comRodape(renderizarModelo(m2, valores), locale) : "",
+  };
+}
+
 export function montarRoteiroDoCandidato(entrada: EntradaDoRoteiro): RoteiroDoCandidato {
   const { data, snapshot, locale, agoraIso } = entrada;
   const produto = produtoDoRoteiro(snapshot);
@@ -67,6 +112,27 @@ export function montarRoteiroDoCandidato(entrada: EntradaDoRoteiro): RoteiroDoCa
   if (veredito.estado !== "elegivel") return { estado: veredito.estado, motivo: veredito.motivo };
 
   const nome = nomeLimpoDaEmpresa(data.name);
+  if (snapshot.mensagem_1?.trim()) {
+    const { msg1, msg2 } = montarDoModelo(snapshot, produto, nome, veredito.critico, locale);
+    const barrada: string[] = [];
+    for (const [rotulo, texto] of [
+      ["Mensagem 1", msg1],
+      ["Mensagem 2", msg2],
+    ] as const) {
+      if (!texto) continue;
+      const v = validarTexto(texto, produto, locale);
+      if (!v.ok) for (const m of v.motivos) barrada.push(`${rotulo}: ${m}`);
+    }
+    return {
+      estado: "pronto",
+      msg1,
+      msg2,
+      critico: veredito.critico,
+      citaveisComSolucao: veredito.citaveisComSolucao.slice(0, MAXIMO_ACHADOS_NA_MSG2),
+      barrada,
+    };
+  }
+  if (veredito.critico === null) return { estado: "inelegivel", motivo: "Sem achado para o produto." };
   const ctx: ContextoDaMensagem = {
     // Não há nome de pessoa na ficha (o contato é a empresa): o cumprimento usa o nome do negócio.
     contato: nome,
@@ -112,6 +178,39 @@ export function conferirProdutoParaCampanha(
 ): string[] {
   const produto = produtoDoRoteiro(snapshot);
   const motivos = new Set<string>();
+  const m1 = snapshot.mensagem_1?.trim();
+  if (m1) {
+    // MODELOS do produto (modelo.ts): confere marcador inexistente, dado que falta (link, prova) e
+    // aplica a validação do envio num exemplo — sem achado se o modelo não usa, com um por solução se usa.
+    const m2 = snapshot.mensagem_2?.trim() ?? "";
+    for (const texto of [m1, m2]) {
+      if (!texto) continue;
+      for (const motivo of validarModelo(texto)) motivos.add(motivo);
+      for (const motivo of marcadoresSemValor(texto, snapshot)) motivos.add(motivo);
+    }
+    if (motivos.size > 0) return [...motivos];
+    const precisaAchado = modeloUsaAchado(m1) || modeloUsaAchado(m2);
+    const exemplos: Array<AchadoDaEmpresa | null> = [];
+    if (precisaAchado) {
+      for (const codigo of Object.keys(snapshot.solucoes).filter((c) => Object.hasOwn(ACHADOS, c))) {
+        const base = ACHADOS[codigo as keyof typeof ACHADOS];
+        exemplos.push({ codigo, vimos_curto: base.vimos_curto, peso: base.peso, citavel: true });
+      }
+      if (exemplos.length === 0)
+        return ["O texto usa {achado} ou {solucao}, mas o produto não tem nenhuma solução cadastrada."];
+    } else {
+      exemplos.push(null);
+    }
+    for (const achado of exemplos) {
+      const { msg1, msg2 } = montarDoModelo(snapshot, produto, "Empresa Exemplo", achado, locale);
+      for (const texto of [msg1, msg2]) {
+        if (!texto) continue;
+        const v = validarTexto(texto, produto, locale);
+        if (!v.ok) for (const m of v.motivos) motivos.add(m);
+      }
+    }
+    return [...motivos];
+  }
   const codigos = Object.keys(snapshot.solucoes).filter((c) => Object.hasOwn(ACHADOS, c));
   if (codigos.length === 0)
     return ["O produto não tem nenhuma solução cadastrada para os achados que a auditoria mede."];

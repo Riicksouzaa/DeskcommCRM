@@ -76,6 +76,8 @@ export async function msg2PendenteDoTurno(
     });
     // Texto barrado nunca é entregue ao agente como "o que enviar".
     if (roteiro.estado !== "pronto" || roteiro.barrada.length > 0) return null;
+    // Modelo só de Msg 1: não há Msg 2 do sistema, o agente conduz a conversa pelo prompt dele.
+    if (!roteiro.msg2) return null;
     return {
       candidatoId: linha.id,
       campanhaId: linha.campaign_id,

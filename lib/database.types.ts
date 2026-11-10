@@ -13095,6 +13095,8 @@ export type Database = {
           created_by: string | null;
           id: string;
           link_demo: string | null;
+          mensagem_1: string | null;
+          mensagem_2: string | null;
           nome: string;
           organization_id: string;
           proibicoes: string[];
@@ -13112,6 +13114,8 @@ export type Database = {
           created_by?: string | null;
           id?: string;
           link_demo?: string | null;
+          mensagem_1?: string | null;
+          mensagem_2?: string | null;
           nome: string;
           organization_id: string;
           proibicoes?: string[];
@@ -13128,6 +13132,8 @@ export type Database = {
           created_by?: string | null;
           id?: string;
           link_demo?: string | null;
+          mensagem_1?: string | null;
+          mensagem_2?: string | null;
           nome?: string;
           organization_id?: string;
           proibicoes?: string[];

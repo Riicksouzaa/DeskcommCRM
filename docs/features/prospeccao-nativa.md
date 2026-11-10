@@ -185,3 +185,14 @@ segue o processo próprio desse provedor.
 O export de dados do contato inclui a origem, os dados coletados e o estado da
 abordagem dos candidatos vinculados a ele, com o mesmo escopo da anonimização.
 Não inclui tokens de supressão nem autorizações internas de envio.
+
+## Mensagens do produto como dado (fork, 2026-11-10)
+
+O produto da prospecção pode trazer o texto da Msg 1 e da Msg 2 (`prospecting_products.mensagem_1` e
+`mensagem_2`, migration F003 em `supabase/fork/`). Os textos usam marcadores (`lib/prospecting/produto/modelo.ts`:
+`{empresa} {contato} {assina} {produto} {resumo} {link_demo} {prova} {achado} {solucao}`). Sem `mensagem_1`
+vale o roteiro "achado primeiro" de sempre. Com ela, a empresa só depende de auditoria se o texto usa
+`{achado}` ou `{solucao}` (`avaliarCandidatoParaProduto`); sem `mensagem_2` não há Msg 2 do sistema e o agente
+conduz a conversa pelo prompt (`msg2PendenteDoTurno` devolve `null`). O rodapé de saída é sempre do sistema, e
+`conferirProdutoParaCampanha` valida marcador, dado que falta e proibições na ativação. Prova:
+`lib/prospecting/produto/modelo.test.ts`.
